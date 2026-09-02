@@ -1,5 +1,6 @@
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
+import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
 import type { CoupleProfilePayload } from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
@@ -84,6 +85,16 @@ let syncInFlight: Promise<void> | null = null;
  * run instead of racing each other.
  */
 export function runSync(): Promise<void> {
+  // Every synced entity in Phase 1 is couple-scoped, and the server rejects sync calls outright
+  // without a coupleId claim — so a logged-in user who hasn't created/joined a couple yet (still
+  // in onboarding) has nothing to sync. Skip quietly rather than hitting the API every tick just
+  // to get a 403 back. Checked before touching `syncInFlight` at all: setting it from inside the
+  // IIFE below would race the `syncInFlight = (async () => {...})()` assignment itself and could
+  // leave it stuck non-null, since that assignment completes *after* this function returns.
+  if (!useAuthStore.getState().session?.user.coupleId) {
+    return Promise.resolve();
+  }
+
   if (!syncInFlight) {
     syncInFlight = (async () => {
       useSyncStore.getState().setStatus('syncing');

@@ -7,7 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { getDatabase } from '../src/database/db';
 import { useAuthStore } from '../src/stores/authStore';
-import { startSyncEngine } from '../src/sync';
+import { startSyncEngine, stopSyncEngine } from '../src/sync';
 
 const queryClient = new QueryClient();
 
@@ -35,12 +35,22 @@ export default function RootLayout() {
     })();
   }, [hydrate]);
 
+  const hasCouple = Boolean(session?.user.coupleId);
+
   useEffect(() => {
     if (isHydrated) {
       setIsReady(true);
-      void startSyncEngine();
     }
   }, [isHydrated]);
+
+  useEffect(() => {
+    // Nothing is syncable until the user has a couple (see runSync's own guard for why) — only
+    // run the engine's connectivity listener/timer once that's true, and tear it down on logout.
+    if (isHydrated && hasCouple) {
+      void startSyncEngine();
+      return () => stopSyncEngine();
+    }
+  }, [isHydrated, hasCouple]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -50,7 +60,7 @@ export default function RootLayout() {
             <ActivityIndicator color="#C97C6D" />
           </View>
         ) : (
-          <RootNavigator isAuthenticated={session !== null} hasCouple={Boolean(session?.user.coupleId)} />
+          <RootNavigator isAuthenticated={session !== null} hasCouple={hasCouple} />
         )}
       </SafeAreaProvider>
     </QueryClientProvider>
