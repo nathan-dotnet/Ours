@@ -1,13 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Text, View } from 'react-native';
+import { RefreshControl, Text, View } from 'react-native';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
 import { TextField } from '@/components/TextField';
 import { useLocalCouple, useUpdateCoupleProfile } from '@/hooks/useCouple';
 import { useAuthStore } from '@/stores/authStore';
+import { triggerSync } from '@/sync';
 import { coupleProfileSchema, type CoupleProfileFormValues } from '@/validation/couple';
 
 const TODAY_LABEL = new Date().toLocaleDateString(undefined, {
@@ -21,6 +22,16 @@ export default function HomeScreen() {
   const { data, isLoading } = useLocalCouple();
   const updateProfile = useUpdateCoupleProfile();
   const [isEditing, setIsEditing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await triggerSync();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const couple = data?.couple ?? null;
   const members = data?.members ?? [];
@@ -47,7 +58,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <Screen scroll>
+    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
       <View className="gap-1 pb-6 pt-4">
         <Text className="text-sm font-medium text-clay">{TODAY_LABEL}</Text>
         <Text className="text-3xl font-semibold text-ink">

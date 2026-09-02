@@ -13,6 +13,7 @@ export default function SettingsScreen() {
   const { data } = useLocalCouple();
   const { logout } = useAuthActions();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const onLogout = async () => {
     setIsLoggingOut(true);
@@ -20,6 +21,15 @@ export default function SettingsScreen() {
       await logout();
     } finally {
       setIsLoggingOut(false);
+    }
+  };
+
+  const onSyncNow = async () => {
+    setIsSyncing(true);
+    try {
+      await triggerSync();
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -52,7 +62,7 @@ export default function SettingsScreen() {
         <View className="gap-3 rounded-2xl bg-blush p-5">
           <Text className="text-lg font-semibold text-ink">Sync</Text>
           <SyncStatusBadge />
-          <Button label="Sync now" variant="secondary" onPress={() => triggerSync()} />
+          <Button label="Sync now" variant="secondary" onPress={onSyncNow} loading={isSyncing} />
         </View>
 
         <Button label="Log out" variant="secondary" onPress={onLogout} loading={isLoggingOut} />
