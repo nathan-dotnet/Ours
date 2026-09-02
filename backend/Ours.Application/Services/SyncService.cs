@@ -2,17 +2,20 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Ours.Application.Abstractions;
 using Ours.Application.Common;
+using Ours.Application.DTOs.Calendar;
 using Ours.Application.DTOs.Couples;
 using Ours.Application.DTOs.Sync;
+using Ours.Domain.Entities;
 
 namespace Ours.Application.Services;
 
 /// <summary>
-/// Generic, entity-agnostic sync endpoint implementation. Phase 1 only registers a handler
-/// for "couple_profile" (see <see cref="CoupleProfileEntityType"/>) — it exists purely to
-/// prove the offline round trip end-to-end. Future phases add a case per new entity type
-/// (e.g. "calendar_event", "expense") to <see cref="PullAsync"/> and <see cref="PushAsync"/>
-/// rather than standing up a parallel sync mechanism.
+/// Generic, entity-agnostic sync endpoint implementation. Phase 1 registered a handler for
+/// "couple_profile" purely to prove the offline round trip end-to-end; Phase 2 adds
+/// "calendar_event" (see <see cref="CalendarEventEntityType"/>) as the first real feature to
+/// use it. Future phases add a case per new entity type (e.g. "expense") to
+/// <see cref="PullAsync"/> and <see cref="PushAsync"/> rather than standing up a parallel sync
+/// mechanism.
 /// </summary>
 public class SyncService(
     IApplicationDbContext db,
@@ -20,6 +23,7 @@ public class SyncService(
     IDateTimeProvider clock)
 {
     public const string CoupleProfileEntityType = "couple_profile";
+    public const string CalendarEventEntityType = "calendar_event";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -44,6 +48,31 @@ public class SyncService(
             });
         }
 
+        var events = await db.CalendarEvents
+            .Where(e => e.CoupleId == coupleId && (since == null || e.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var calendarEvent in events)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = CalendarEventEntityType,
+                EntityId = calendarEvent.Id,
+                Operation = calendarEvent.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = calendarEvent.IsDeleted ? null : new CalendarEventPayloadDto
+                {
+                    Title = calendarEvent.Title,
+                    Description = calendarEvent.Description,
+                    StartAt = calendarEvent.StartAt,
+                    EndAt = calendarEvent.EndAt,
+                    ReminderAt = calendarEvent.ReminderAt,
+                    CreatedByUserId = calendarEvent.CreatedByUserId,
+                },
+                UpdatedAt = calendarEvent.UpdatedAt,
+                UpdatedByUserId = calendarEvent.UpdatedByUserId,
+                Version = calendarEvent.Version,
+            });
+        }
+
         // Future entity types append their own "changed since `since`" checks here.
 
         return new SyncPullResponseDto { ServerTime = serverTime, Changes = changes };
@@ -65,6 +94,7 @@ public class SyncService(
             var result = item.EntityType switch
             {
                 CoupleProfileEntityType => await ApplyCoupleProfileChangeAsync(coupleId, item, ct),
+                CalendarEventEntityType => await ApplyCalendarEventChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
             results.Add(result);
@@ -96,15 +126,7 @@ public class SyncService(
         // rejected (not merged) so the client can pull the newer value instead of clobbering it.
         if (item.ClientUpdatedAt < couple.UpdatedAt)
         {
-            return new SyncPushResultItemDto
-            {
-                EntityId = item.EntityId,
-                EntityType = item.EntityType,
-                Accepted = false,
-                Error = "stale_write",
-                ServerVersion = couple.Version,
-                ServerUpdatedAt = couple.UpdatedAt,
-            };
+            return StaleWrite(item, couple.Version, couple.UpdatedAt);
         }
 
         CoupleProfilePayloadDto? payload;
@@ -128,15 +150,122 @@ public class SyncService(
         couple.UpdatedByUserId = currentUser.UserId;
         couple.Version += 1;
 
-        return new SyncPushResultItemDto
-        {
-            EntityId = couple.Id,
-            EntityType = item.EntityType,
-            Accepted = true,
-            ServerVersion = couple.Version,
-            ServerUpdatedAt = couple.UpdatedAt,
-        };
+        return Accepted(item, couple.Version, couple.UpdatedAt);
     }
+
+    /// <summary>
+    /// Unlike couple_profile (a singleton that always already exists by the time sync ever
+    /// runs), a calendar event might be genuinely new to the server — this is where offline
+    /// CREATE actually lands. Whether the server has seen this id before (not the client's
+    /// stated Operation) is what decides create-vs-update, which makes a retried push of an
+    /// already-applied CREATE naturally idempotent.
+    /// </summary>
+    private async Task<SyncPushResultItemDto> ApplyCalendarEventChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.CalendarEvents.FirstOrDefaultAsync(e => e.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's events.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                // Already gone (or a retry of a delete that already landed) — deleting is
+                // idempotent, so this counts as success rather than an error.
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        CalendarEventPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<CalendarEventPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Title))
+        {
+            return Rejected(item, "Title is required.");
+        }
+
+        if (payload.EndAt < payload.StartAt)
+        {
+            return Rejected(item, "End time must be after start time.");
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            // First time the server has seen this id — trust the device-generated UUID as the
+            // entity id (offline-first: ids are minted on-device, not assigned by the server).
+            existing = new CalendarEvent
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.CalendarEvents.Add(existing);
+        }
+
+        existing.Title = payload.Title;
+        existing.Description = payload.Description;
+        existing.StartAt = payload.StartAt;
+        existing.EndAt = payload.EndAt;
+        existing.ReminderAt = payload.ReminderAt;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    private static SyncPushResultItemDto Accepted(SyncPushItemDto item, int? serverVersion, DateTimeOffset? serverUpdatedAt) => new()
+    {
+        EntityId = item.EntityId,
+        EntityType = item.EntityType,
+        Accepted = true,
+        ServerVersion = serverVersion,
+        ServerUpdatedAt = serverUpdatedAt,
+    };
+
+    private static SyncPushResultItemDto StaleWrite(SyncPushItemDto item, int serverVersion, DateTimeOffset serverUpdatedAt) => new()
+    {
+        EntityId = item.EntityId,
+        EntityType = item.EntityType,
+        Accepted = false,
+        Error = "stale_write",
+        ServerVersion = serverVersion,
+        ServerUpdatedAt = serverUpdatedAt,
+    };
 
     private static SyncPushResultItemDto Rejected(SyncPushItemDto item, string error) => new()
     {
