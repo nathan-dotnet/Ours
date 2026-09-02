@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Ours",
+    "slug": "ours",
+    "scheme": "ours",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ours.app"
+    },
+    "android": {
+      "package": "com.ours.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#F6E9E6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-status-bar", "expo-sqlite", "expo-secure-store"]
+  }
+}
