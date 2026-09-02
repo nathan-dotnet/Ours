@@ -5,11 +5,11 @@
  *  - Generic sync plumbing (`sync_queue`, `sync_meta`) that every future feature reuses as-is.
  *  - Feature tables that mirror the server's shape plus sync metadata (updated_at,
  *    updated_by_user_id, version, is_deleted) so the "last valid server write wins" strategy
- *    has what it needs on both ends. `couples`/`couple_members` are the only feature tables in
- *    Phase 1 — later phases add one table per new entity, following this same shape.
+ *    has what it needs on both ends. `couples`/`couple_members` (Phase 1) and `calendar_events`
+ *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -55,4 +55,26 @@ export const MIGRATION_V1 = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_couple_members_couple_id ON couple_members (couple_id);
+`;
+
+/** Statements applied when moving from schema version 1 -> 2: adds Calendar (Phase 2). */
+export const MIGRATION_V2 = `
+  CREATE TABLE IF NOT EXISTS calendar_events (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    reminder_at TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_calendar_events_couple_id ON calendar_events (couple_id);
+  CREATE INDEX IF NOT EXISTS idx_calendar_events_start_at ON calendar_events (start_at);
 `;

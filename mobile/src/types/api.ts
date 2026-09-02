@@ -42,6 +42,17 @@ export interface CoupleProfilePayload {
   anniversaryDate: string | null;
 }
 
+/** Shape of the "calendar_event" sync payload — mirrors the backend's CalendarEventPayloadDto. */
+export interface CalendarEventPayload {
+  title: string;
+  description: string | null;
+  startAt: string;
+  endAt: string;
+  reminderAt: string | null;
+  /** Only ever present on a pulled change — the server sets it, a push never needs to. */
+  createdByUserId?: string;
+}
+
 export type SyncOperationDto = 'CREATE' | 'UPDATE' | 'DELETE';
 
 export interface SyncPushItemDto {

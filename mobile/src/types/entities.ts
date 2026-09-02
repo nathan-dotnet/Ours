@@ -20,6 +20,22 @@ export interface CoupleMember {
   joined_at: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  couple_id: string;
+  title: string;
+  description: string | null;
+  start_at: string; // ISO datetime
+  end_at: string; // ISO datetime
+  reminder_at: string | null; // ISO datetime
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
 export type SyncOperation = 'CREATE' | 'UPDATE' | 'DELETE';
 export type SyncQueueStatus = 'pending' | 'syncing' | 'failed' | 'synced';
 
