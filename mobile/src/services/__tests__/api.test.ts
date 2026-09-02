@@ -23,8 +23,14 @@ function jsonResponse(status: number, body: unknown) {
 }
 
 describe('isNetworkError', () => {
-  it('treats a TypeError (fetch failure) as a network error', () => {
+  it('treats a TypeError (web fetch failure) as a network error', () => {
     expect(isNetworkError(new TypeError('Network request failed'))).toBe(true);
+  });
+
+  it('treats a plain Error (React Native fetch failure, e.g. ConnectException) as a network error', () => {
+    expect(isNetworkError(new Error('fetch failed: java.net.ConnectException: Failed to connect to /192.168.1.1:5100'))).toBe(
+      true,
+    );
   });
 
   it('does not treat an ApiError as a network error', () => {

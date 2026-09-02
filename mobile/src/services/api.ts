@@ -20,9 +20,16 @@ export class ApiError extends Error {
   }
 }
 
-/** True for network failures (no response at all) — the signal callers use to decide "go offline", vs. a real server error. */
+/**
+ * True for network failures (no response at all) — the signal callers use to decide "go
+ * offline", vs. a real server error. `request()` below only ever throws ApiError for an actual
+ * HTTP response; anything else reaching a caller's catch block is a connectivity failure by
+ * construction, whatever shape it takes. That's deliberately not "error instanceof TypeError" —
+ * that only holds for the web `fetch`; React Native's throws a plain Error (e.g. "fetch failed:
+ * java.net.ConnectException: ...") for the exact same condition.
+ */
 export function isNetworkError(error: unknown): boolean {
-  return error instanceof TypeError;
+  return !(error instanceof ApiError);
 }
 
 // Only one refresh should ever be in flight — concurrent 401s (a foreground request racing the
