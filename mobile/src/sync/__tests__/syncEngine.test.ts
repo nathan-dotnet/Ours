@@ -1,4 +1,5 @@
 import { resetDatabaseHandleForTests } from '../../database/db';
+import { calendarEventRepository } from '../../repositories/calendarEventRepository';
 import { useAuthStore } from '../../stores/authStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { runSync } from '../syncEngine';
@@ -52,5 +53,43 @@ describe('runSync', () => {
 
     expect(fetchMock).toHaveBeenCalled();
     expect(useSyncStore.getState().status).toBe('synced');
+  });
+
+  it('applies a pulled calendar_event change to SQLite, routed by entity type', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+
+    const eventId = 'event-1';
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'calendar_event',
+            entityId: eventId,
+            operation: 'UPDATE',
+            payload: {
+              title: 'Movie night',
+              description: null,
+              startAt: '2026-02-01T20:00:00.000Z',
+              endAt: '2026-02-01T22:00:00.000Z',
+              reminderAt: null,
+              createdByUserId: 'user-bob',
+            },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-bob',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    const stored = await calendarEventRepository.getById(eventId);
+    expect(stored).toMatchObject({ title: 'Movie night', couple_id: coupleId, created_by_user_id: 'user-bob' });
   });
 });

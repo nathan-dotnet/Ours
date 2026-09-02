@@ -1,8 +1,9 @@
+import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
-import type { CoupleProfilePayload } from '../types/api';
+import type { CalendarEventPayload, CoupleProfilePayload } from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from './syncQueue';
@@ -60,6 +61,9 @@ async function pushPending(): Promise<void> {
 async function pullRemote(): Promise<void> {
   const since = await getLastSyncedAt();
   const response = await api.syncPull(since);
+  // Only used for entity types (like calendar_event) whose local table needs coupleId on insert —
+  // safe to read here since runSync() already guarantees a couple exists before this ever runs.
+  const coupleId = useAuthStore.getState().session!.user.coupleId!;
 
   for (const change of response.changes) {
     if (change.entityType === COUPLE_PROFILE_ENTITY_TYPE) {
@@ -70,8 +74,17 @@ async function pullRemote(): Promise<void> {
         change.updatedByUserId,
         change.version,
       );
+    } else if (change.entityType === CALENDAR_EVENT_ENTITY_TYPE) {
+      await calendarEventRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as CalendarEventPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
     }
-    // Future entity types (calendar_event, expense, ...) add another branch here.
+    // Future entity types (expense, ...) add another branch here.
   }
 
   await setLastSyncedAt(response.serverTime);
