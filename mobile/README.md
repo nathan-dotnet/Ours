@@ -7,10 +7,11 @@ a generic sync queue reconciles with the backend when a connection is available.
 app/                      Expo Router routes
   (auth)/                 login, register
   (onboarding)/           create-couple, join-couple (the one online-only flow)
-  (tabs)/                 Home, Settings — the main app
+  (tabs)/                 Home, Calendar, Settings — the main app
+  calendar/               new / [id] — create + edit event modals
 src/
   database/                SQLite open + migrations (schema.ts, migrations.ts, db.ts)
-  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts)
+  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts)
   sync/                    sync_queue repository + push/pull engine, reused by every feature
   services/                API client (with auto token-refresh), connectivity (NetInfo)
   stores/                  Zustand: auth session, sync status
@@ -70,12 +71,19 @@ code.
 - Conflict strategy is last-valid-server-write-wins (per the project spec) — the server is always
   the tiebreaker; the client never merges concurrent edits itself.
 
-**Adding a new synced feature (Phase 2+)**: add its table to `src/database/schema.ts` (with
-`updated_at`/`updated_by_user_id`/`version`/`is_deleted` columns), a repository following
-`coupleRepository.ts`'s shape, and one branch each in `syncEngine.ts`'s push/pull loops. Don't
-build a separate queue or engine for it.
+**Adding a new synced feature**: add its table to `src/database/schema.ts` (with
+`updated_at`/`updated_by_user_id`/`version`/`is_deleted` columns, and bump
+`CURRENT_SCHEMA_VERSION` + add a migration block), a repository following
+`coupleRepository.ts`'s (Phase 1) or `calendarEventRepository.ts`'s (Phase 2 — a genuinely
+independent, potentially-partner-created entity rather than a singleton) shape, and one branch
+each in `syncEngine.ts`'s push/pull loops. Don't build a separate queue or engine for it.
 
-## Known limitations (Phase 1)
+Calendar (Phase 2) is the first feature to exercise the full offline lifecycle end to end:
+create/edit/delete all work offline (SQLite + sync_queue immediately, pushed once online), and a
+delete surfaces to the partner's device as a pulled tombstone rather than the row just vanishing
+unexplained — see `calendarEventRepository.applyRemoteChange`.
+
+## Known limitations
 
 - No iOS Simulator runtime or working Android Emulator was available in the environment this was
   built in, so the UI was verified via `tsc --noEmit`, `expo export` (both platforms bundle
@@ -83,3 +91,7 @@ build a separate queue or engine for it.
   it on a simulator/device to confirm visually before shipping.
 - Push notifications (`expo-notifications` is installed but unconfigured) and photo upload
   (`expo-image-picker` installed, unused) are foundation-only — wired up in later phases.
+- Calendar reminders are stored (`reminder_at`) but nothing schedules an actual device
+  notification for one yet — that's Phase 6.
+- The Calendar tab is a chronological agenda list grouped by day, not a month-grid view — kept
+  deliberately simple for Phase 2 rather than adding a calendar-grid UI library.

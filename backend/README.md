@@ -66,10 +66,13 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 ## Architecture notes
 
 - **Sync**: `SyncService` (Application/Services) is the one place that knows about synced entity
-  types. It currently has a single handler, `"couple_profile"` — a Phase-1 stand-in that exists
-  purely to exercise the offline round trip (push/pull/last-write-wins) without pulling any
-  Phase 2+ feature forward. Adding a new synced feature means adding a case to `PullAsync` and
-  `PushAsync`, not a new controller or a parallel sync mechanism.
+  types: `"couple_profile"` (Phase 1, a stand-in that exists purely to exercise the offline round
+  trip) and `"calendar_event"` (Phase 2, the first real feature). Adding a new synced feature
+  means adding a case to `PullAsync` and `PushAsync`, not a new controller or a parallel sync
+  mechanism. `CalendarEvent` is also the first entity where the server itself creates a row
+  (rather than only ever updating one that already exists) — see `ApplyCalendarEventChangeAsync`
+  for how create-vs-update is decided by whether the id already exists server-side, not by
+  trusting the client's stated operation, which makes retried pushes naturally idempotent.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.
@@ -82,9 +85,11 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 - **Errors**: Application services throw typed exceptions (`Ours.Application.Common`) that
   `ExceptionHandlingMiddleware` maps to HTTP status codes, so controllers stay free of that logic.
 
-## Known limitations (Phase 1)
+## Known limitations
 
 - CORS is wide open (`AllowAnyOrigin`) — fine for a mobile-only client, revisit before any
   browser-based client exists.
 - No rate limiting on `/api/auth/*` yet.
 - SignalR isn't wired up yet (Phase 6).
+- No server-side reminder scheduling — `CalendarEvent.ReminderAt` is stored but nothing acts on
+  it yet; actual notification delivery is Phase 6.

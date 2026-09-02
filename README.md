@@ -45,9 +45,13 @@ Full setup (Postgres install, test commands, troubleshooting) is in each project
 
 **Phase 1 — Foundation** is complete: registration, login, JWT + refresh tokens, couple
 create/join (max 2 members, unique invite codes), the SQLite schema + migration system, the
-generic sync queue/engine, and offline persistence across app restarts. See the phase completion
-report for what was built, tested, and verified.
+generic sync queue/engine, and offline persistence across app restarts.
 
-Calendar, Expenses, Photos, Love Notes, Goals, and the other features in the product brief are
-**not yet implemented** — they land in later phases, reusing this same architecture (SQLite
-schema → repository → UI → sync queue → API → PostgreSQL) rather than a new one each time.
+**Phase 2 — Calendar** is complete: shared events (title, description, start/end time, optional
+reminder) with full offline create/edit/delete, synced through the same generic sync
+queue/engine as Phase 1 — no second sync mechanism was introduced. See the phase completion
+reports for what was built, tested, and verified.
+
+Expenses, Photos, Love Notes, Goals, and the other features in the product brief are **not yet
+implemented** — they land in later phases, reusing this same architecture (SQLite schema →
+repository → UI → sync queue → API → PostgreSQL) rather than a new one each time.
