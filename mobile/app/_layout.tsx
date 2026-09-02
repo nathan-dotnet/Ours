@@ -16,6 +16,7 @@ const queryClient = new QueryClient();
  *  - (auth): not logged in yet
  *  - (onboarding): logged in, hasn't created/joined a couple yet
  *  - (tabs): logged in and paired — the main app
+ * `calendar` (the create/edit modals) shares the (tabs) guard since it's equally couple-scoped.
  * Stack.Protected re-evaluates its guard on every render, so completing any of these steps
  * (which updates the auth store) navigates the user forward automatically.
  */
@@ -78,6 +79,7 @@ function RootNavigator({ isAuthenticated, hasCouple }: { isAuthenticated: boolea
       </Stack.Protected>
       <Stack.Protected guard={isAuthenticated && hasCouple}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="calendar" />
       </Stack.Protected>
     </Stack>
   );
