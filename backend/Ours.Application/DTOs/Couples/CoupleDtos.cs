@@ -50,3 +50,11 @@ public sealed class CoupleActionResponseDto
     public CoupleDto Couple { get; init; } = null!;
     public AuthResponseDto Auth { get; init; } = null!;
 }
+
+public sealed class LeaveCoupleResponseDto
+{
+    public bool Success { get; init; } = true;
+
+    /// <summary>False when the caller wasn't in an active couple to begin with — an idempotent no-op, not an error.</summary>
+    public bool Left { get; init; }
+}

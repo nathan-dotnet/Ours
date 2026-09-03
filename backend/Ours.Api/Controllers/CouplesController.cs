@@ -30,4 +30,12 @@ public class CouplesController(CoupleService coupleService) : ControllerBase
         var couple = await coupleService.GetMyCoupleAsync(ct);
         return Ok(couple);
     }
+
+    /// <summary>Ends the caller's own current couple. No coupleId/partnerId is accepted — the authenticated user's own membership (looked up server-side) is the only thing this can ever act on.</summary>
+    [HttpPost("leave")]
+    public async Task<ActionResult<LeaveCoupleResponseDto>> Leave(CancellationToken ct)
+    {
+        var result = await coupleService.LeaveAsync(ct);
+        return Ok(result);
+    }
 }

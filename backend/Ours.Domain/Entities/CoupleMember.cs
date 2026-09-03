@@ -16,4 +16,12 @@ public class CoupleMember
     public ApplicationUser User { get; set; } = null!;
 
     public DateTimeOffset JoinedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Null while this membership is active. Set when the couple ends (see
+    /// CoupleService.LeaveAsync) — kept as a row rather than deleted, so who was in a couple and
+    /// when they joined/left stays auditable. The unique index on UserId is filtered to only
+    /// active (LeftAt IS NULL) rows, so a past membership never blocks a genuinely new one.
+    /// </summary>
+    public DateTimeOffset? LeftAt { get; set; }
 }

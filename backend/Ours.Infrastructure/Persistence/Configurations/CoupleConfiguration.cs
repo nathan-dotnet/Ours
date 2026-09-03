@@ -28,9 +28,12 @@ public class CoupleMemberConfiguration : IEntityTypeConfiguration<CoupleMember>
     {
         builder.HasKey(m => m.Id);
 
-        // Enforces "a user belongs to at most one couple" and "max 2 members per couple"
-        // (the latter together with the application-layer count check) at the data level.
-        builder.HasIndex(m => m.UserId).IsUnique();
+        // Enforces "a user belongs to at most one *active* couple" (app-level check on
+        // ApplicationUser.CoupleId is the primary mechanism; this is the DB-level backstop) and,
+        // together with the application-layer count check, "max 2 members per couple". Filtered
+        // so an ended membership (LeftAt set — see CoupleService.LeaveAsync) never blocks a
+        // genuinely new one for the same user.
+        builder.HasIndex(m => m.UserId).IsUnique().HasFilter("\"LeftAt\" IS NULL");
 
         builder.HasOne(m => m.User)
             .WithMany()

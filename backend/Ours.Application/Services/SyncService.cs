@@ -81,6 +81,18 @@ public class SyncService(
     public async Task<SyncPushResponseDto> PushAsync(SyncPushRequestDto request, CancellationToken ct = default)
     {
         var coupleId = currentUser.CoupleId ?? throw new ForbiddenAppException("You must belong to a couple to sync.");
+
+        // The JWT's coupleId claim is only as fresh as the token itself (up to its lifetime) —
+        // if the couple ended since this token was issued (the caller left, or their partner
+        // did), the claim is stale. Checked once up front rather than per-entity-type handler,
+        // so this covers couple_profile and every future entity type uniformly: an ended couple
+        // can never accept a mutation, no matter what a stale-but-still-valid token claims.
+        var coupleIsActive = await db.Couples.AnyAsync(c => c.Id == coupleId && !c.IsDeleted, ct);
+        if (!coupleIsActive)
+        {
+            throw new ForbiddenAppException("Your couple is no longer active.");
+        }
+
         var results = new List<SyncPushResultItemDto>();
 
         foreach (var item in request.Changes)
