@@ -38,6 +38,24 @@ export interface CalendarEvent {
   is_deleted: number;
 }
 
+export interface Expense {
+  id: string;
+  couple_id: string;
+  amount_cents: number; // integer minor units — never a float; see utils/money.ts
+  currency: string; // ISO 4217, e.g. "PHP"
+  description: string | null;
+  category: string;
+  expense_date: string; // ISO date (YYYY-MM-DD) — date-only, no time/timezone component
+  notes: string | null;
+  paid_by_user_id: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
 export type SyncOperation = 'CREATE' | 'UPDATE' | 'DELETE';
 export type SyncQueueStatus = 'pending' | 'syncing' | 'failed' | 'synced';
 

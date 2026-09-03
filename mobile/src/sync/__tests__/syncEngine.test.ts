@@ -1,6 +1,7 @@
 import { resetDatabaseHandleForTests } from '../../database/db';
 import { calendarEventRepository } from '../../repositories/calendarEventRepository';
 import { coupleRepository } from '../../repositories/coupleRepository';
+import { expenseRepository } from '../../repositories/expenseRepository';
 import { useAuthStore } from '../../stores/authStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { runSync } from '../syncEngine';
@@ -132,6 +133,102 @@ describe('runSync', () => {
 
     expect(await coupleRepository.getLocalCouple()).toBeNull();
     expect(useAuthStore.getState().session?.user.coupleId).toBeNull();
+  });
+
+  it('applies a pulled expense change to SQLite, converting the decimal payload to exact cents', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+
+    const expenseId = 'expense-1';
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'expense',
+            entityId: expenseId,
+            operation: 'UPDATE',
+            payload: {
+              amount: 1250.5,
+              currency: 'PHP',
+              description: 'Groceries',
+              category: 'Food',
+              expenseDate: '2026-01-15',
+              notes: null,
+              createdByUserId: 'user-bob',
+            },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-bob',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    const stored = await expenseRepository.getById(expenseId);
+    expect(stored).toMatchObject({ amount_cents: 125050, couple_id: coupleId, created_by_user_id: 'user-bob' });
+  });
+
+  it('an expense change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+    await coupleRepository.upsertFromServer({
+      id: coupleId,
+      inviteCode: 'OURS-TEST',
+      nickname: null,
+      anniversaryDate: null,
+      updatedAt: '2025-12-01T00:00:00.000Z',
+      updatedByUserId: 'user-1',
+      version: 1,
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+    });
+    const expenseId = 'expense-1';
+
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'couple_profile',
+            entityId: coupleId,
+            operation: 'DELETE',
+            payload: null,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-2',
+            version: 2,
+          },
+          {
+            entityType: 'expense',
+            entityId: expenseId,
+            operation: 'UPDATE',
+            payload: {
+              amount: 100,
+              currency: 'PHP',
+              description: 'Should not be resurrected',
+              category: 'Other',
+              expenseDate: '2026-01-15',
+              notes: null,
+              createdByUserId: 'user-1',
+            },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-1',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    expect(await expenseRepository.getById(expenseId)).toBeNull();
   });
 
   it('a calendar_event change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {

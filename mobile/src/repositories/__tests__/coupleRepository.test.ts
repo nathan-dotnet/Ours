@@ -3,6 +3,11 @@ import { syncQueueRepository } from '../../sync/syncQueue';
 import type { CoupleDto } from '../../types/api';
 import { calendarEventRepository } from '../calendarEventRepository';
 import { coupleRepository } from '../coupleRepository';
+import { expenseRepository } from '../expenseRepository';
+
+function expenseInput(overrides: Partial<Parameters<typeof expenseRepository.createLocally>[1]> = {}) {
+  return { amountCents: 25000, currency: 'PHP', description: 'Dinner', category: 'Food', expenseDate: '2026-01-01', notes: null, ...overrides };
+}
 
 const serverCouple: CoupleDto = {
   id: 'couple-1',
@@ -84,28 +89,32 @@ describe('coupleRepository', () => {
       { title: 'Anniversary dinner', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
       'user-alice',
     );
+    await expenseRepository.createLocally('couple-1', expenseInput(), 'user-alice');
 
     await coupleRepository.applyRemoteProfileChange('couple-1', null, '2026-02-01T00:00:00.000Z', 'user-bob', 2);
 
     expect(await coupleRepository.getLocalCouple()).toBeNull();
     expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(0);
     expect(await calendarEventRepository.getAllForCouple('couple-1')).toHaveLength(0);
+    expect(await expenseRepository.getAllForCouple('couple-1')).toHaveLength(0);
   });
 
   describe('removeLocalCoupleAndData', () => {
-    it('removes the couple, its members, and its calendar events', async () => {
+    it('removes the couple, its members, its calendar events, and its expenses', async () => {
       await coupleRepository.upsertFromServer(serverCouple);
       await calendarEventRepository.createLocally(
         'couple-1',
         { title: 'Dinner', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
         'user-alice',
       );
+      await expenseRepository.createLocally('couple-1', expenseInput({ description: 'Old Couple Dinner' }), 'user-alice');
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
       expect(await coupleRepository.getLocalCouple()).toBeNull();
       expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(0);
       expect(await calendarEventRepository.getAllForCouple('couple-1')).toHaveLength(0);
+      expect(await expenseRepository.getAllForCouple('couple-1')).toHaveLength(0);
     });
 
     it('discards any not-yet-synced sync_queue entries for the couple — a pending edit/create must not survive into a future couple', async () => {
@@ -113,13 +122,15 @@ describe('coupleRepository', () => {
       const couple = (await coupleRepository.getLocalCouple())!;
       // A pending couple_profile edit...
       await coupleRepository.updateProfileLocally(couple, { nickname: 'Draft name', anniversaryDate: null }, 'user-alice');
-      // ...and a calendar event created offline, never synced.
+      // ...a calendar event created offline, never synced...
       await calendarEventRepository.createLocally(
         'couple-1',
         { title: 'Never synced', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
         'user-alice',
       );
-      expect(await syncQueueRepository.countPending()).toBe(2);
+      // ...and an expense created offline, never synced.
+      await expenseRepository.createLocally('couple-1', expenseInput(), 'user-alice');
+      expect(await syncQueueRepository.countPending()).toBe(3);
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
@@ -140,6 +151,7 @@ describe('coupleRepository', () => {
         { title: 'Unrelated event', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
         'user-carol',
       );
+      await expenseRepository.createLocally('couple-2', expenseInput({ description: 'New Couple Dinner' }), 'user-carol');
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
@@ -148,6 +160,7 @@ describe('coupleRepository', () => {
       const survivingMembers = await coupleRepository.getLocalMembers('couple-2');
       expect(survivingMembers).toHaveLength(1);
       expect(await calendarEventRepository.getAllForCouple('couple-2')).toHaveLength(1);
+      expect(await expenseRepository.getAllForCouple('couple-2')).toHaveLength(1);
     });
   });
 });

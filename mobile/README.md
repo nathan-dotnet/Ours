@@ -8,11 +8,12 @@ app/                      Expo Router routes
   (auth)/                 login, register, forgot-password
   reset-password.tsx      top-level (not inside (auth)) — see "Deep linking" below
   (onboarding)/           create-couple, join-couple (online-only, like leaving one — see below)
-  (tabs)/                 Home, Calendar, Settings — the main app
+  (tabs)/                 Home, Calendar, Money, Settings — the main app
   calendar/               new / [id] — create + edit event modals
+  expenses/                new / [id] — create + edit expense modals
 src/
   database/                SQLite open + migrations (schema.ts, migrations.ts, db.ts)
-  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts)
+  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts, expenseRepository.ts)
   sync/                    sync_queue repository + push/pull engine, reused by every feature
   services/                API client (with auto token-refresh), connectivity (NetInfo), biometricAuth.ts
   stores/                  Zustand: auth session (+ biometric gate), sync status
@@ -89,6 +90,18 @@ an event list scoped to whichever day is selected. An event can be marked all-da
 it's ever converted to an ISO timestamp — converting through UTC first, or storing a bare date,
 is what would let the day silently shift depending on the device's timezone offset.
 
+Money (Phase 3A) adds `expenseRepository.ts` on the exact same pattern, with one extra rule:
+`amount_cents` is stored as a SQLite `INTEGER` (never `REAL`), and every total (monthly total,
+category breakdown, in `useExpenseTotals`) is computed by summing plain integers — see
+`utils/money.ts`. The wire payload is still a decimal JSON number matching the backend's
+`decimal`; `apiAmountToCents`/`centsToApiAmount` are the only two places a float briefly exists,
+and both use a `toFixed`-then-parse/round trick specifically so a value like `100.10 + 0.20` is
+never serialized as `100.30000000000001`. `ExpenseDate` follows `anniversary_date`'s existing
+bare `YYYY-MM-DD` convention (`utils/date.ts`'s `toLocalDateString`/`fromLocalDateString`, never
+`Date#toISOString()`, which reads the UTC date and can shift by a day). Leaving a couple's cleanup
+(`removeLocalCoupleAndData`) removes a couple's expenses the same way it already removed calendar
+events — see below.
+
 ## Authentication: password reset + biometric login
 
 - **Forgot/reset password**: `app/(auth)/forgot-password.tsx` calls `POST /api/auth/forgot-password`
@@ -121,7 +134,7 @@ state, so the app never pretends a destructive cross-user change succeeded when 
 confirmed it.
 
 On a confirmed success, `coupleRepository.removeLocalCoupleAndData()` removes the couple, its
-membership rows, and its calendar events — and discards any not-yet-synced `sync_queue` entry for
+membership rows, its calendar events, and its expenses — and discards any not-yet-synced `sync_queue` entry for
 that data too, so a pending offline edit/create from before leaving can never get pushed under
 whatever couple this device joins next (the server derives a push's couple from the *current*
 token, not from whenever the change was queued). `authStore.clearCoupleId()` then patches the

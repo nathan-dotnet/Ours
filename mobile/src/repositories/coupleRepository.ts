@@ -105,9 +105,10 @@ export const coupleRepository = {
   async removeLocalCoupleAndData(coupleId: string): Promise<void> {
     const db = await getDatabase();
 
-    // Future couple-scoped local tables (beyond calendar_events) need a line here too.
+    // Future couple-scoped local tables (beyond calendar_events/expenses) need a line here too.
     const events = await db.getAllAsync<{ id: string }>(`SELECT id FROM calendar_events WHERE couple_id = ?`, [coupleId]);
-    const queuedEntityIds = [coupleId, ...events.map((e) => e.id)];
+    const expenses = await db.getAllAsync<{ id: string }>(`SELECT id FROM expenses WHERE couple_id = ?`, [coupleId]);
+    const queuedEntityIds = [coupleId, ...events.map((e) => e.id), ...expenses.map((e) => e.id)];
 
     await db.withTransactionAsync(async () => {
       for (const entityId of queuedEntityIds) {
@@ -116,6 +117,7 @@ export const coupleRepository = {
       await db.runAsync(`DELETE FROM couples WHERE id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM couple_members WHERE couple_id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM calendar_events WHERE couple_id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM expenses WHERE couple_id = ?`, [coupleId]);
     });
   },
 

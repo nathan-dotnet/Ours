@@ -1,9 +1,10 @@
 import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
+import { expenseRepository, EXPENSE_ENTITY_TYPE } from '../repositories/expenseRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
-import type { CalendarEventPayload, CoupleProfilePayload } from '../types/api';
+import type { CalendarEventPayload, CoupleProfilePayload, ExpensePayload } from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from './syncQueue';
@@ -99,9 +100,19 @@ async function pullRemote(): Promise<void> {
         change.updatedByUserId,
         change.version,
       );
+    } else if (change.entityType === EXPENSE_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await expenseRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as ExpensePayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
     }
-    // Future entity types (expense, ...) add another branch here — and the `if (coupleJustEnded)
-    // continue;` guard, if they're couple-scoped the same way calendar events are.
+    // Future entity types add another branch here — and the `if (coupleJustEnded) continue;`
+    // guard, if they're couple-scoped the same way calendar events/expenses are.
   }
 
   await setLastSyncedAt(response.serverTime);

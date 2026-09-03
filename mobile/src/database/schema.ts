@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -86,4 +86,32 @@ export const MIGRATION_V2 = `
 export const MIGRATION_V3 = `
   ALTER TABLE calendar_events ADD COLUMN all_day INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE calendar_events ADD COLUMN location TEXT;
+`;
+
+/**
+ * Statements applied when moving from schema version 3 -> 4: adds Expenses (Phase 3A).
+ * `amount_cents` is an INTEGER, never REAL — see utils/money.ts for why money is never stored
+ * or summed as a SQLite REAL/JS float anywhere in this app.
+ */
+export const MIGRATION_V4 = `
+  CREATE TABLE IF NOT EXISTS expenses (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL,
+    expense_date TEXT NOT NULL,
+    notes TEXT,
+    paid_by_user_id TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_expenses_couple_id ON expenses (couple_id);
+  CREATE INDEX IF NOT EXISTS idx_expenses_couple_id_expense_date ON expenses (couple_id, expense_date);
 `;

@@ -6,25 +6,30 @@ describe('database migrations', () => {
     resetDatabaseHandleForTests();
   });
 
-  it('creates every table (Phase 1 + Phase 2) and sets the schema version', async () => {
+  it('creates every table (Phase 1 + Phase 2 + Phase 3A) and sets the schema version', async () => {
     const db = await getDatabase();
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(3);
+    expect(version?.user_version).toBe(4);
 
     const tables = await db.getAllAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
     );
     const tableNames = tables.map((t) => t.name);
     expect(tableNames).toEqual(
-      expect.arrayContaining(['sync_queue', 'sync_meta', 'couples', 'couple_members', 'calendar_events']),
+      expect.arrayContaining(['sync_queue', 'sync_meta', 'couples', 'couple_members', 'calendar_events', 'expenses']),
     );
 
     const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(calendar_events)`);
     expect(columns.map((c) => c.name)).toEqual(expect.arrayContaining(['all_day', 'location']));
+
+    const expenseColumns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(expenses)`);
+    expect(expenseColumns.map((c) => c.name)).toEqual(
+      expect.arrayContaining(['amount_cents', 'currency', 'category', 'expense_date', 'paid_by_user_id']),
+    );
   });
 
-  it('migrates a Phase-1-only database (schema v1) forward to v3 without touching existing tables', async () => {
+  it('migrates a Phase-1-only database (schema v1) forward to v4 without touching existing tables', async () => {
     resetDatabaseHandleForTests();
     const db = await getDatabase();
     // Simulate a device that installed before Phase 2 shipped: roll back to v1 and drop the
@@ -34,11 +39,15 @@ describe('database migrations', () => {
     await migrateDatabase(db);
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(3);
+    expect(version?.user_version).toBe(4);
     const table = await db.getFirstAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'calendar_events'`,
     );
     expect(table).not.toBeNull();
+    const expensesTable = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
+    );
+    expect(expensesTable).not.toBeNull();
     // A pre-existing table from v1 must survive the upgrade untouched.
     const couplesTable = await db.getFirstAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'couples'`,
@@ -46,7 +55,7 @@ describe('database migrations', () => {
     expect(couplesTable).not.toBeNull();
   });
 
-  it('migrates a Phase-2 database (schema v2, no all_day/location columns) forward to v3 additively', async () => {
+  it('migrates a Phase-2 database (schema v2, no all_day/location columns) forward to v4 additively', async () => {
     resetDatabaseHandleForTests();
     const db = await getDatabase();
     // Simulate a device on Phase 2 exactly as shipped: drop back to the v2 column set.
@@ -65,9 +74,28 @@ describe('database migrations', () => {
     await migrateDatabase(db);
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(3);
+    expect(version?.user_version).toBe(4);
     const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(calendar_events)`);
     expect(columns.map((c) => c.name)).toEqual(expect.arrayContaining(['all_day', 'location']));
+    const expensesTable = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
+    );
+    expect(expensesTable).not.toBeNull();
+  });
+
+  it('migrates a Phase-2/2B database (schema v3, no expenses table) forward to v4 additively', async () => {
+    resetDatabaseHandleForTests();
+    const db = await getDatabase();
+    await db.execAsync('DROP TABLE expenses; PRAGMA user_version = 3;');
+
+    await migrateDatabase(db);
+
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    expect(version?.user_version).toBe(4);
+    const expensesTable = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
+    );
+    expect(expensesTable).not.toBeNull();
   });
 
   it('is idempotent — opening an already-migrated database again is a no-op', async () => {

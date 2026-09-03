@@ -64,6 +64,24 @@ export interface CalendarEventPayload {
   createdByUserId?: string;
 }
 
+/**
+ * Shape of the "expense" sync payload — mirrors the backend's ExpensePayloadDto. `amount` is a
+ * plain decimal JSON number on the wire (exact on the backend, which parses/serializes it as
+ * `decimal` directly); see utils/money.ts for how the mobile side converts it to/from integer
+ * cents without ever going through a lossy floating-point sum.
+ */
+export interface ExpensePayload {
+  amount: number;
+  currency: string;
+  description: string | null;
+  category: string;
+  expenseDate: string; // ISO date (YYYY-MM-DD)
+  notes: string | null;
+  paidByUserId?: string | null;
+  /** Only ever present on a pulled change — the server sets it, a push never needs to. */
+  createdByUserId?: string;
+}
+
 export type SyncOperationDto = 'CREATE' | 'UPDATE' | 'DELETE';
 
 export interface SyncPushItemDto {

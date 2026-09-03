@@ -67,7 +67,7 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 
 - **Sync**: `SyncService` (Application/Services) is the one place that knows about synced entity
   types: `"couple_profile"` (Phase 1, a stand-in that exists purely to exercise the offline round
-  trip) and `"calendar_event"` (Phase 2, the first real feature). Adding a new synced feature
+  trip), `"calendar_event"` (Phase 2), and `"expense"` (Phase 3A). Adding a new synced feature
   means adding a case to `PullAsync` and `PushAsync`, not a new controller or a parallel sync
   mechanism. `CalendarEvent` is also the first entity where the server itself creates a row
   (rather than only ever updating one that already exists) — see `ApplyCalendarEventChangeAsync`
@@ -76,6 +76,15 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
   `CalendarEvent.AllDay`/`Location` were added later, additively (their own migration) — a plain
   boolean and nullable string on the entity/payload, no special-cased sync handling; the client
   is what treats an all-day event's Start/EndAt (still real UTC instants) as spanning a whole day.
+- **Money (`Expense`)**: `Amount` is `decimal`/Postgres `numeric(18,2)` — never `float`/`double` —
+  so it round-trips exactly through JSON (System.Text.Json's decimal converter parses/serializes
+  the digits directly, no floating-point step at all). `Category` is a small controlled set
+  (`ExpenseCategory`, string constants — same pattern as `SyncOperation`) validated server-side;
+  `Currency` is only shape-checked (3 uppercase letters), not restricted to a fixed list, so
+  adding a second currency later needs no data-model change. `ExpenseDate` is `DateOnly` (no
+  time-of-day/timezone component), deliberately separate from `CreatedAt` so a user can log an
+  expense after the fact. The optional `PaidByUserId` is validated against `CoupleMembers` (must
+  be an active — `LeftAt IS NULL` — member of the caller's own couple) rather than trusted as-is.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.
