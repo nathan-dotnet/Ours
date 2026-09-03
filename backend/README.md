@@ -88,9 +88,20 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
   default) just logs the reset link instead of sending anything, so local dev needs zero email
   credentials — `Email:Provider=smtp` sends real mail via MailKit.
 - **Couple**: `Couple` + `CoupleMember` (join table, unique index on `UserId` — a user belongs to
-  at most one couple). Creating/joining are the one part of the app that requires the server (an
-  invite code has to come from somewhere) — everything else is designed to work offline-first on
-  the mobile side.
+  at most one *active* couple). Creating/joining are the one part of the app that requires the
+  server (an invite code has to come from somewhere) — everything else is designed to work
+  offline-first on the mobile side.
+- **Leaving a couple** (`POST /api/couples/leave`, `CoupleService.LeaveAsync`): ends the couple
+  for both members, not just whoever called it — no coupleId/partnerId is ever accepted from the
+  client, only the caller's own `ApplicationUser.CoupleId` (loaded fresh from the DB). Reuses
+  existing mechanics rather than adding new ones: `Couple.IsDeleted = true` (the same sync
+  tombstone flag couple_profile edits already use) is what tells the partner's device the couple
+  is gone on their next pull, and `CoupleMember.LeftAt` (nullable) marks a membership as ended
+  while keeping the row for history — the DB-level unique index on `CoupleMember.UserId` is
+  filtered to `LeftAt IS NULL` so a past membership never blocks pairing again. `SyncService.PushAsync`
+  additionally verifies the caller's couple is still active before accepting *any* mutation, since
+  a token issued before the couple ended still carries the old coupleId claim until it naturally
+  expires — this closes that window without needing to force-revoke the other partner's session.
 - **Authorization**: every couple-scoped read/write derives `coupleId` from the JWT claim (set by
   the server after create/join), never from a client-supplied field.
 - **Errors**: Application services throw typed exceptions (`Ours.Application.Common`) that

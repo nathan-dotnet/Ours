@@ -7,7 +7,7 @@ a generic sync queue reconciles with the backend when a connection is available.
 app/                      Expo Router routes
   (auth)/                 login, register, forgot-password
   reset-password.tsx      top-level (not inside (auth)) — see "Deep linking" below
-  (onboarding)/           create-couple, join-couple (the one online-only flow)
+  (onboarding)/           create-couple, join-couple (online-only, like leaving one — see below)
   (tabs)/                 Home, Calendar, Settings — the main app
   calendar/               new / [id] — create + edit event modals
 src/
@@ -105,6 +105,30 @@ unexplained — see `calendarEventRepository.applyRemoteChange`.
   login turned off) rather than silently retried, so a stale "quick login" preference can never
   outlive the session behind it — including after a password reset, which revokes every refresh
   token and thus invalidates any device's biometric login on its next use, automatically.
+
+## Leaving a couple
+
+Settings' Couple section calls `useCoupleActions().leaveCouple()` — the third online-only couple
+action alongside create/join, and for the same reason: ending a couple changes *another user's*
+membership too, which local SQLite alone can never safely resolve. It checks connectivity
+(`getIsOnline()`) before ever calling the API; offline, it throws without touching any local
+state, so the app never pretends a destructive cross-user change succeeded when the server hasn't
+confirmed it.
+
+On a confirmed success, `coupleRepository.removeLocalCoupleAndData()` removes the couple, its
+membership rows, and its calendar events — and discards any not-yet-synced `sync_queue` entry for
+that data too, so a pending offline edit/create from before leaving can never get pushed under
+whatever couple this device joins next (the server derives a push's couple from the *current*
+token, not from whenever the change was queued). `authStore.clearCoupleId()` then patches the
+session locally (no fresh token is issued for this — the backend already rejects a stale coupleId
+claim, see the backend README), which is what flips the root layout's `hasCouple` guard and
+routes back to onboarding.
+
+The partner who didn't initiate the leave learns about it the same way any other couple_profile
+tombstone is learned about: their next sync pull applies it through
+`coupleRepository.applyRemoteProfileChange()`'s null-payload branch (now the same full cleanup,
+not just a field update) and calls the same `clearCoupleId()` — one mechanism handles both the
+leaver's own device and the partner's, rather than two.
 
 ## Known limitations
 
