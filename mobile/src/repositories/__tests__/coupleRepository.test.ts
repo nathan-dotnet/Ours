@@ -1,6 +1,7 @@
 import { resetDatabaseHandleForTests } from '../../database/db';
 import { syncQueueRepository } from '../../sync/syncQueue';
 import type { CoupleDto } from '../../types/api';
+import { calendarEventRepository } from '../calendarEventRepository';
 import { coupleRepository } from '../coupleRepository';
 
 const serverCouple: CoupleDto = {
@@ -74,5 +75,79 @@ describe('coupleRepository', () => {
 
     const couple = await coupleRepository.getLocalCouple();
     expect(couple).toMatchObject({ nickname: 'From Partner', updated_by_user_id: 'user-bob', version: 2 });
+  });
+
+  it('applyRemoteProfileChange with a null payload fully removes the couple (not just the couples row)', async () => {
+    await coupleRepository.upsertFromServer(serverCouple);
+    await calendarEventRepository.createLocally(
+      'couple-1',
+      { title: 'Anniversary dinner', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+      'user-alice',
+    );
+
+    await coupleRepository.applyRemoteProfileChange('couple-1', null, '2026-02-01T00:00:00.000Z', 'user-bob', 2);
+
+    expect(await coupleRepository.getLocalCouple()).toBeNull();
+    expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(0);
+    expect(await calendarEventRepository.getAllForCouple('couple-1')).toHaveLength(0);
+  });
+
+  describe('removeLocalCoupleAndData', () => {
+    it('removes the couple, its members, and its calendar events', async () => {
+      await coupleRepository.upsertFromServer(serverCouple);
+      await calendarEventRepository.createLocally(
+        'couple-1',
+        { title: 'Dinner', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+        'user-alice',
+      );
+
+      await coupleRepository.removeLocalCoupleAndData('couple-1');
+
+      expect(await coupleRepository.getLocalCouple()).toBeNull();
+      expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(0);
+      expect(await calendarEventRepository.getAllForCouple('couple-1')).toHaveLength(0);
+    });
+
+    it('discards any not-yet-synced sync_queue entries for the couple — a pending edit/create must not survive into a future couple', async () => {
+      await coupleRepository.upsertFromServer(serverCouple);
+      const couple = (await coupleRepository.getLocalCouple())!;
+      // A pending couple_profile edit...
+      await coupleRepository.updateProfileLocally(couple, { nickname: 'Draft name', anniversaryDate: null }, 'user-alice');
+      // ...and a calendar event created offline, never synced.
+      await calendarEventRepository.createLocally(
+        'couple-1',
+        { title: 'Never synced', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+        'user-alice',
+      );
+      expect(await syncQueueRepository.countPending()).toBe(2);
+
+      await coupleRepository.removeLocalCoupleAndData('couple-1');
+
+      expect(await syncQueueRepository.countPending()).toBe(0);
+    });
+
+    it('never touches a different couple\'s local data', async () => {
+      await coupleRepository.upsertFromServer(serverCouple);
+      const otherCouple: CoupleDto = {
+        ...serverCouple,
+        id: 'couple-2',
+        inviteCode: 'OURS-OTHER',
+        members: [{ userId: 'user-carol', displayName: 'Carol', joinedAt: '2026-01-01T00:00:00.000Z' }],
+      };
+      await coupleRepository.upsertFromServer(otherCouple);
+      await calendarEventRepository.createLocally(
+        'couple-2',
+        { title: 'Unrelated event', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+        'user-carol',
+      );
+
+      await coupleRepository.removeLocalCoupleAndData('couple-1');
+
+      // getLocalCouple() only ever returns the first non-deleted row, which is fine for this
+      // app's "at most one active couple" invariant — read couple-2 directly to confirm survival.
+      const survivingMembers = await coupleRepository.getLocalMembers('couple-2');
+      expect(survivingMembers).toHaveLength(1);
+      expect(await calendarEventRepository.getAllForCouple('couple-2')).toHaveLength(1);
+    });
   });
 });

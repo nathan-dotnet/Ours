@@ -89,3 +89,46 @@ describe('authStore biometric gate', () => {
     expect(useAuthStore.getState().isBiometricGatePassed).toBe(true);
   });
 });
+
+describe('authStore.clearCoupleId', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('clears coupleId on the session while leaving everything else untouched', async () => {
+    useAuthStore.setState({ session: storedSession });
+
+    await useAuthStore.getState().clearCoupleId();
+
+    const session = useAuthStore.getState().session;
+    expect(session?.user.coupleId).toBeNull();
+    expect(session?.user.id).toBe(storedSession.user.id);
+    expect(session?.accessToken).toBe(storedSession.accessToken);
+    expect(session?.refreshToken).toBe(storedSession.refreshToken);
+  });
+
+  it('persists the patched session to SecureStore under the same key', async () => {
+    useAuthStore.setState({ session: storedSession });
+
+    await useAuthStore.getState().clearCoupleId();
+
+    expect(mockSetItemAsync).toHaveBeenCalledWith('ours.session', expect.stringContaining('"coupleId":null'));
+  });
+
+  it('is a no-op when there is no session', async () => {
+    useAuthStore.setState({ session: null });
+
+    await useAuthStore.getState().clearCoupleId();
+
+    expect(useAuthStore.getState().session).toBeNull();
+    expect(mockSetItemAsync).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when coupleId is already null', async () => {
+    useAuthStore.setState({ session: { ...storedSession, user: { ...storedSession.user, coupleId: null } } });
+
+    await useAuthStore.getState().clearCoupleId();
+
+    expect(mockSetItemAsync).not.toHaveBeenCalled();
+  });
+});
