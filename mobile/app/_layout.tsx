@@ -17,14 +17,19 @@ const queryClient = new QueryClient();
  *  - (onboarding): logged in, hasn't created/joined a couple yet
  *  - (tabs): logged in and paired — the main app
  * `calendar` (the create/edit modals) shares the (tabs) guard since it's equally couple-scoped.
+ * `reset-password` sits outside every guard — see the comment on it below.
  * Stack.Protected re-evaluates its guard on every render, so completing any of these steps
  * (which updates the auth store) navigates the user forward automatically.
+ *
+ * "isAuthenticated" additionally requires `isBiometricGatePassed` — a restored `session` alone
+ * isn't enough to show the app when biometric login is enabled; see authStore.ts.
  */
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const session = useAuthStore((s) => s.session);
+  const isBiometricGatePassed = useAuthStore((s) => s.isBiometricGatePassed);
 
   useEffect(() => {
     (async () => {
@@ -61,7 +66,7 @@ export default function RootLayout() {
             <ActivityIndicator color="#C97C6D" />
           </View>
         ) : (
-          <RootNavigator isAuthenticated={session !== null} hasCouple={hasCouple} />
+          <RootNavigator isAuthenticated={session !== null && isBiometricGatePassed} hasCouple={hasCouple} />
         )}
       </SafeAreaProvider>
     </QueryClientProvider>
@@ -71,6 +76,10 @@ export default function RootLayout() {
 function RootNavigator({ isAuthenticated, hasCouple }: { isAuthenticated: boolean; hasCouple: boolean }) {
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      {/* Deliberately not inside any Stack.Protected block: the password-reset email link
+          (ours://reset-password?email=...&token=...) must open reliably regardless of whether
+          this device happens to be logged in — a guarded route redirects away before showing. */}
+      <Stack.Screen name="reset-password" />
       <Stack.Protected guard={!isAuthenticated}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>

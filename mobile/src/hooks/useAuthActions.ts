@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { coupleRepository } from '../repositories/coupleRepository';
 import { api } from '../services/api';
+import { disableBiometricLogin } from '../services/biometricAuth';
 import { useAuthStore } from '../stores/authStore';
 import { triggerSync } from '../sync';
 import type { LoginFormValues, RegisterFormValues } from '../validation/auth';
@@ -55,7 +56,23 @@ export function useAuthActions() {
       }
     }
     await clearSession();
+    // An explicit logout ends biometric quick-login too — otherwise the biometric-gated material
+    // would sit there implying "you can get back in with Face ID", which isn't true once you've
+    // deliberately logged out. Re-enabling it requires a normal login again.
+    await disableBiometricLogin();
   }, [session, clearSession]);
 
-  return { register, login, logout };
+  const forgotPassword = useCallback(async (email: string) => {
+    // The backend deliberately returns the same response whether or not the email exists — see
+    // AuthController.ForgotPassword — so there's nothing to branch on here either.
+    await api.forgotPassword(email);
+  }, []);
+
+  const resetPassword = useCallback(async (email: string, token: string, newPassword: string) => {
+    // No session is established here by design — the user returns to Login and signs in with
+    // their new password (see the mobile reset-password screen).
+    await api.resetPassword(email, token, newPassword);
+  }, []);
+
+  return { register, login, logout, forgotPassword, resetPassword };
 }
