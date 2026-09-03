@@ -4,6 +4,7 @@ import type {
   AuthResponseDto,
   CoupleActionResponseDto,
   CoupleDto,
+  MessageResponseDto,
   SyncPullResponseDto,
   SyncPushItemDto,
   SyncPushResponseDto,
@@ -129,4 +130,17 @@ export const api = {
 
   syncPull: (since: string | null) =>
     request<SyncPullResponseDto>(`/api/sync/pull${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+
+  forgotPassword: (email: string) =>
+    request<MessageResponseDto>('/api/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
+
+  resetPassword: (email: string, token: string, newPassword: string) =>
+    request<void>('/api/auth/reset-password', { method: 'POST', body: { email, token, newPassword }, auth: false }),
+
+  /**
+   * Exposes the same rotate-or-clear refresh flow `request()` uses internally on a 401, for
+   * callers (biometric unlock) that need to validate a restored session against the server
+   * before treating it as live — reusing it rather than re-implementing refresh/rotation.
+   */
+  refreshSession: () => refreshAccessToken(),
 };

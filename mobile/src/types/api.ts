@@ -94,3 +94,7 @@ export interface SyncPullResponseDto {
 export interface ApiErrorBody {
   error: string;
 }
+
+export interface MessageResponseDto {
+  message: string;
+}

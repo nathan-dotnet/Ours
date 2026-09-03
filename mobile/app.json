@@ -32,7 +32,18 @@
       "expo-router",
       "expo-status-bar",
       "expo-sqlite",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Ours uses Face ID to unlock your account faster."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Ours uses Face ID to unlock your account faster."
+        }
+      ],
       "@react-native-community/datetimepicker"
     ]
   }
