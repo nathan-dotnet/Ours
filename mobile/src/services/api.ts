@@ -4,6 +4,7 @@ import type {
   AuthResponseDto,
   CoupleActionResponseDto,
   CoupleDto,
+  LeaveCoupleResponseDto,
   MessageResponseDto,
   SyncPullResponseDto,
   SyncPushItemDto,
@@ -124,6 +125,8 @@ export const api = {
     request<CoupleActionResponseDto>('/api/couples/join', { method: 'POST', body: { inviteCode } }),
 
   getMyCouple: () => request<CoupleDto>('/api/couples/me'),
+
+  leaveCouple: () => request<LeaveCoupleResponseDto>('/api/couples/leave', { method: 'POST' }),
 
   syncPush: (changes: SyncPushItemDto[]) =>
     request<SyncPushResponseDto>('/api/sync/push', { method: 'POST', body: { changes } }),

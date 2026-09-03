@@ -30,6 +30,15 @@ interface AuthState {
   /** Swaps in a fresh token pair for the same user (used after refresh, and after create/join couple re-issues tokens with an updated coupleId claim). */
   updateTokens: (auth: AuthResponseDto) => Promise<void>;
   clearSession: () => Promise<void>;
+  /**
+   * Patches the couple off the current session without a fresh server token — used when this
+   * device learns its couple ended (its own "leave couple" call, or a partner's tombstone
+   * arriving through sync pull) so routing (the root layout's `hasCouple` guard) and the sync
+   * engine's own "do I have a couple" check react immediately, rather than waiting on whatever
+   * eventually triggers this user's next token refresh. The couple itself was already ended
+   * server-side by the time either caller reaches this — this only reconciles local state.
+   */
+  clearCoupleId: () => Promise<void>;
 }
 
 function toSession(auth: AuthResponseDto): AuthSession {
@@ -41,7 +50,7 @@ function toSession(auth: AuthResponseDto): AuthSession {
   };
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   isHydrated: false,
   isBiometricGatePassed: true,
@@ -78,5 +87,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   clearSession: async () => {
     await SecureStore.deleteItemAsync(SESSION_KEY);
     set({ session: null, isBiometricGatePassed: true });
+  },
+
+  clearCoupleId: async () => {
+    const current = get().session;
+    if (!current || current.user.coupleId === null) return;
+    const updated: AuthSession = { ...current, user: { ...current.user, coupleId: null } };
+    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(updated));
+    set({ session: updated });
   },
 }));

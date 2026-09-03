@@ -76,18 +76,47 @@ export const coupleRepository = {
   ): Promise<void> {
     const db = await getDatabase();
     if (payload === null) {
-      await db.runAsync(`UPDATE couples SET is_deleted = 1, updated_at = ?, updated_by_user_id = ?, version = ? WHERE id = ?`, [
-        updatedAt,
-        updatedByUserId,
-        version,
-        coupleId,
-      ]);
+      // A null payload is the couple ending (see SyncService.LeaveAsync on the backend) — not
+      // just an ordinary field-level update, so it gets the full local cleanup rather than a
+      // plain field update.
+      await coupleRepository.removeLocalCoupleAndData(coupleId);
       return;
     }
     await db.runAsync(
       `UPDATE couples SET nickname = ?, anniversary_date = ?, updated_at = ?, updated_by_user_id = ?, version = ? WHERE id = ?`,
       [payload.nickname, payload.anniversaryDate, updatedAt, updatedByUserId, version, coupleId],
     );
+  },
+
+  /**
+   * Removes every local trace of a couple that has ended — called both right after this
+   * device's own successful "leave couple" call, and when a sync pull delivers a couple_profile
+   * tombstone (the partner ended it instead). Discards any not-yet-synced sync_queue entry for
+   * the couple's data too: without this, a pending offline edit/create from before the couple
+   * ended could otherwise get pushed under whatever couple this device joins/creates next, since
+   * the server derives a push's couple from the *current* token, not from whenever the change
+   * was originally queued.
+   *
+   * Not a soft-delete: unlike the server (which keeps an IsDeleted row so a pull can tell a
+   * partner's device the couple is gone), there's nothing else locally that needs to see a
+   * tombstone — a new couple always gets a fresh id, so nothing can ever collide with what's
+   * removed here.
+   */
+  async removeLocalCoupleAndData(coupleId: string): Promise<void> {
+    const db = await getDatabase();
+
+    // Future couple-scoped local tables (beyond calendar_events) need a line here too.
+    const events = await db.getAllAsync<{ id: string }>(`SELECT id FROM calendar_events WHERE couple_id = ?`, [coupleId]);
+    const queuedEntityIds = [coupleId, ...events.map((e) => e.id)];
+
+    await db.withTransactionAsync(async () => {
+      for (const entityId of queuedEntityIds) {
+        await db.runAsync(`DELETE FROM sync_queue WHERE entity_id = ?`, [entityId]);
+      }
+      await db.runAsync(`DELETE FROM couples WHERE id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM couple_members WHERE couple_id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM calendar_events WHERE couple_id = ?`, [coupleId]);
+    });
   },
 
   /**

@@ -36,6 +36,12 @@ export interface CoupleActionResponseDto {
   auth: AuthResponseDto;
 }
 
+export interface LeaveCoupleResponseDto {
+  success: boolean;
+  /** False when the caller wasn't in an active couple to begin with — an idempotent no-op, not an error. */
+  left: boolean;
+}
+
 /** Shape of the "couple_profile" sync payload — mirrors the backend's CoupleProfilePayloadDto. */
 export interface CoupleProfilePayload {
   nickname: string | null;

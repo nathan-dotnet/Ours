@@ -64,6 +64,12 @@ async function pullRemote(): Promise<void> {
   // Only used for entity types (like calendar_event) whose local table needs coupleId on insert —
   // safe to read here since runSync() already guarantees a couple exists before this ever runs.
   const coupleId = useAuthStore.getState().session!.user.coupleId!;
+  // Flips once the couple_profile tombstone for our own couple is seen. The backend always lists
+  // that change before any of the couple's other entities in the same response (see
+  // SyncService.PullAsync) — when it fires mid-batch, every other couple-scoped change in *this
+  // same* response is for data removeLocalCoupleAndData just deleted, and must be skipped rather
+  // than re-applied (which would silently resurrect exactly what was just cleaned up).
+  let coupleJustEnded = false;
 
   for (const change of response.changes) {
     if (change.entityType === COUPLE_PROFILE_ENTITY_TYPE) {
@@ -74,7 +80,17 @@ async function pullRemote(): Promise<void> {
         change.updatedByUserId,
         change.version,
       );
+      if (change.payload === null && change.entityId === coupleId) {
+        coupleJustEnded = true;
+        // Most likely the partner left (if this device had done the leaving itself, its session
+        // would already be up to date via updateTokens at that call site). The session's coupleId
+        // is otherwise only as fresh as this user's next token refresh, which nothing here is
+        // guaranteed to trigger — patch it locally so routing and runSync's own "do I have a
+        // couple" guard react immediately instead.
+        await useAuthStore.getState().clearCoupleId();
+      }
     } else if (change.entityType === CALENDAR_EVENT_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
       await calendarEventRepository.applyRemoteChange(
         coupleId,
         change.entityId,
@@ -84,7 +100,8 @@ async function pullRemote(): Promise<void> {
         change.version,
       );
     }
-    // Future entity types (expense, ...) add another branch here.
+    // Future entity types (expense, ...) add another branch here — and the `if (coupleJustEnded)
+    // continue;` guard, if they're couple-scoped the same way calendar events are.
   }
 
   await setLastSyncedAt(response.serverTime);
