@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Ours.Application.Abstractions;
 using Ours.Application.Common;
 using Ours.Application.DTOs.Auth;
@@ -10,7 +11,9 @@ public class AuthService(
     IIdentityService identityService,
     IApplicationDbContext db,
     IJwtTokenService jwtTokenService,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IEmailService emailService,
+    IOptions<AppOptions> appOptions)
 {
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
@@ -79,6 +82,58 @@ public class AuthService(
             await db.SaveChangesAsync(ct);
         }
         // Idempotent: an unknown/already-revoked token is not an error — the end state is what the caller wanted.
+    }
+
+    /// <summary>
+    /// Never reveals whether the email belongs to an account — AuthController returns the same
+    /// response either way, and this method simply does nothing (no email, no error) when it
+    /// doesn't, rather than giving the controller anything to branch on.
+    /// </summary>
+    public async Task ForgotPasswordAsync(ForgotPasswordRequestDto request, CancellationToken ct = default)
+    {
+        var user = await identityService.FindByEmailAsync(request.Email);
+        if (user is null)
+        {
+            return;
+        }
+
+        var token = await identityService.GeneratePasswordResetTokenAsync(user);
+        var resetUrl = $"{appOptions.Value.PasswordResetUrl}?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}";
+        await emailService.SendPasswordResetEmailAsync(user.Email!, user.DisplayName, resetUrl, ct);
+    }
+
+    public async Task ResetPasswordAsync(ResetPasswordRequestDto request, CancellationToken ct = default)
+    {
+        var user = await identityService.FindByEmailAsync(request.Email);
+        if (user is null)
+        {
+            // Same generic message as an invalid/expired token below — an "unknown email" and a
+            // "wrong token" must be indistinguishable to the caller, or this endpoint becomes a
+            // second way to enumerate accounts even though forgot-password itself doesn't.
+            throw new ValidationAppException("Invalid or expired reset request.");
+        }
+
+        var result = await identityService.ResetPasswordAsync(user, request.Token, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            if (result.Codes.Contains("InvalidToken"))
+            {
+                throw new ValidationAppException("Invalid or expired reset request.");
+            }
+            // Any other failure (e.g. password policy) is about the submitted password, not
+            // account existence — safe to surface directly.
+            throw new ValidationAppException(string.Join(" ", result.Errors));
+        }
+
+        // A password reset ends every previously-authenticated session, not just future ones —
+        // reusing the exact same refresh-token/RevokedAt mechanism logout already uses, rather
+        // than a parallel one.
+        var activeTokens = await db.RefreshTokens.Where(t => t.UserId == user.Id && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var refreshToken in activeTokens)
+        {
+            refreshToken.RevokedAt = clock.UtcNow;
+        }
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>

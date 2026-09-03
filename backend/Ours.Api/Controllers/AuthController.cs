@@ -35,4 +35,19 @@ public class AuthController(AuthService authService) : ControllerBase
         await authService.LogoutAsync(request, ct);
         return NoContent();
     }
+
+    /// <summary>Always returns the same response whether or not the email belongs to an account — see AuthService.ForgotPasswordAsync.</summary>
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult<MessageResponseDto>> ForgotPassword(ForgotPasswordRequestDto request, CancellationToken ct)
+    {
+        await authService.ForgotPasswordAsync(request, ct);
+        return Ok(new MessageResponseDto { Message = "If an account with that email exists, a password reset link has been sent." });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequestDto request, CancellationToken ct)
+    {
+        await authService.ResetPasswordAsync(request, ct);
+        return NoContent();
+    }
 }

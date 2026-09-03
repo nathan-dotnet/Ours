@@ -28,4 +28,15 @@ public class IdentityService(UserManager<ApplicationUser> userManager) : IIdenti
     public Task<ApplicationUser?> FindByIdAsync(Guid userId) => userManager.FindByIdAsync(userId.ToString());
 
     public Task<bool> CheckPasswordAsync(ApplicationUser user, string password) => userManager.CheckPasswordAsync(user, password);
+
+    public Task<string> GeneratePasswordResetTokenAsync(ApplicationUser user) => userManager.GeneratePasswordResetTokenAsync(user);
+
+    public async Task<IdentityOperationResult> ResetPasswordAsync(ApplicationUser user, string token, string newPassword)
+    {
+        var result = await userManager.ResetPasswordAsync(user, token, newPassword);
+        return new IdentityOperationResult(
+            result.Succeeded,
+            result.Errors.Select(e => e.Description).ToList(),
+            result.Errors.Select(e => e.Code).ToList());
+    }
 }

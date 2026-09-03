@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Ours.Application.Abstractions;
 using Ours.Application.Services;
 using Ours.Domain.Entities;
+using Ours.Infrastructure.Email;
 using Ours.Infrastructure.Identity;
 using Ours.Infrastructure.Persistence;
 using Ours.Infrastructure.Services;
@@ -33,7 +35,17 @@ public static class DependencyInjection
             .AddEntityFrameworkStores<AppDbContext>()
             .AddDefaultTokenProviders();
 
+        // GeneratePasswordResetTokenAsync/ResetPasswordAsync use Identity's "Default" token
+        // provider, which is DataProtectorTokenProvider — this is what makes the reset token
+        // time-limited. 1 hour rather than the framework default (1 day) for a tighter window.
+        services.Configure<DataProtectionTokenProviderOptions>(options =>
+        {
+            options.TokenLifespan = TimeSpan.FromHours(1);
+        });
+
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
+        services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -41,6 +53,14 @@ public static class DependencyInjection
         services.AddSingleton<IInviteCodeGenerator, InviteCodeGenerator>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IIdentityService, IdentityService>();
+
+        services.AddScoped<IEmailService>(sp =>
+        {
+            var emailOptions = sp.GetRequiredService<IOptions<EmailOptions>>().Value;
+            return emailOptions.Provider.Equals("smtp", StringComparison.OrdinalIgnoreCase)
+                ? ActivatorUtilities.CreateInstance<SmtpEmailService>(sp)
+                : ActivatorUtilities.CreateInstance<DevelopmentEmailService>(sp);
+        });
 
         services.AddScoped<AuthService>();
         services.AddScoped<CoupleService>();

@@ -50,3 +50,26 @@ public sealed class AuthResponseDto
     public string RefreshToken { get; init; } = string.Empty;
     public UserDto User { get; init; } = null!;
 }
+
+public sealed class ForgotPasswordRequestDto
+{
+    [Required, EmailAddress, MaxLength(256)]
+    public string Email { get; init; } = string.Empty;
+}
+
+public sealed class ResetPasswordRequestDto
+{
+    [Required, EmailAddress, MaxLength(256)]
+    public string Email { get; init; } = string.Empty;
+
+    [Required]
+    public string Token { get; init; } = string.Empty;
+
+    [Required, MinLength(8), MaxLength(100)]
+    public string NewPassword { get; init; } = string.Empty;
+}
+
+public sealed class MessageResponseDto
+{
+    public string Message { get; init; } = string.Empty;
+}
