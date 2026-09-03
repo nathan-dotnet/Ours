@@ -82,7 +82,12 @@ each in `syncEngine.ts`'s push/pull loops. Don't build a separate queue or engin
 Calendar (Phase 2) is the first feature to exercise the full offline lifecycle end to end:
 create/edit/delete all work offline (SQLite + sync_queue immediately, pushed once online), and a
 delete surfaces to the partner's device as a pulled tombstone rather than the row just vanishing
-unexplained — see `calendarEventRepository.applyRemoteChange`.
+unexplained — see `calendarEventRepository.applyRemoteChange`. The Calendar tab is a hand-rolled
+month grid (`MonthCalendarGrid`, no calendar UI library) with day selection, a Today button, and
+an event list scoped to whichever day is selected. An event can be marked all-day; `allDayRange()`
+(`utils/calendarGrouping.ts`) collapses its start/end to this device's own local midnight before
+it's ever converted to an ISO timestamp — converting through UTC first, or storing a bare date,
+is what would let the day silently shift depending on the device's timezone offset.
 
 ## Authentication: password reset + biometric login
 
@@ -141,8 +146,6 @@ leaver's own device and the partner's, rather than two.
   (`expo-image-picker` installed, unused) are foundation-only — wired up in later phases.
 - Calendar reminders are stored (`reminder_at`) but nothing schedules an actual device
   notification for one yet — that's Phase 6.
-- The Calendar tab is a chronological agenda list grouped by day, not a month-grid view — kept
-  deliberately simple for Phase 2 rather than adding a calendar-grid UI library.
 - No "Enable biometric login?" prompt after registration (only after a normal login) — the spec
   frames this as a first-*login* moment, and a brand-new account has nothing to protect yet since
   it goes straight to onboarding.

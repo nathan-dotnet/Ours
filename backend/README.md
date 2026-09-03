@@ -73,6 +73,9 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
   (rather than only ever updating one that already exists) — see `ApplyCalendarEventChangeAsync`
   for how create-vs-update is decided by whether the id already exists server-side, not by
   trusting the client's stated operation, which makes retried pushes naturally idempotent.
+  `CalendarEvent.AllDay`/`Location` were added later, additively (their own migration) — a plain
+  boolean and nullable string on the entity/payload, no special-cased sync handling; the client
+  is what treats an all-day event's Start/EndAt (still real UTC instants) as spanning a whole day.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.
