@@ -1,19 +1,24 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { coupleRepository } from '../repositories/coupleRepository';
 import { api } from '../services/api';
+import { getIsOnline } from '../services/connectivity';
 import { useAuthStore } from '../stores/authStore';
 import { triggerSync } from '../sync';
-import type { CoupleActionResponseDto } from '../types/api';
+import type { CoupleActionResponseDto, LeaveCoupleResponseDto } from '../types/api';
 import type { JoinCoupleFormValues } from '../validation/couple';
 
 /**
- * Create/join require the server (a globally-unique invite code has to come from somewhere,
- * and joining links two accounts together) — they're the one place in the app that isn't
- * offline-capable by nature. Once they succeed, everything that follows (viewing/editing the
- * couple) goes through SQLite + the sync queue like any other feature.
+ * Create/join/leave all require the server — creating/joining need a globally-unique invite code
+ * and link two accounts together; leaving ends another user's membership too. None of that can
+ * be safely resolved from local SQLite alone, so (unlike every other couple-scoped feature) these
+ * are the one place in the app that isn't offline-capable by nature. Once create/join succeed,
+ * everything that follows goes through SQLite + the sync queue like any other feature.
  */
 export function useCoupleActions() {
   const updateTokens = useAuthStore((s) => s.updateTokens);
+  const clearCoupleId = useAuthStore((s) => s.clearCoupleId);
+  const queryClient = useQueryClient();
 
   /**
    * Applies a create/join result to local state: swaps in the new token (its coupleId claim is
@@ -43,5 +48,39 @@ export function useCoupleActions() {
     [finalizeCoupleAction],
   );
 
-  return { createCouple, finalizeCoupleAction, joinCouple };
+  /**
+   * Ends the current couple for both partners. Requires the server to actually confirm it before
+   * touching any local state — a destructive relationship change like this must never be
+   * "resolved" purely offline, so an offline attempt throws before ever calling the API.
+   */
+  const leaveCouple = useCallback(async (): Promise<LeaveCoupleResponseDto> => {
+    const online = await getIsOnline();
+    if (!online) {
+      throw new Error('You need to be online to leave your couple.');
+    }
+
+    // Captured before the API call so the cleanup below still knows which couple to remove even
+    // though the server (and, in a moment, our own session) will no longer say we belong to one.
+    const localCouple = await coupleRepository.getLocalCouple();
+
+    const result = await api.leaveCouple();
+
+    if (result.left) {
+      if (localCouple) {
+        await coupleRepository.removeLocalCoupleAndData(localCouple.id);
+      }
+      // No fresh token is issued for this — GetMyCoupleAsync/SyncService already reject a stale
+      // coupleId claim server-side, so this is purely a local reconciliation (see clearCoupleId's
+      // own doc comment), not something relied on for security.
+      await clearCoupleId();
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ['couple', 'local'] });
+    await queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+    await queryClient.invalidateQueries({ queryKey: ['calendar-event'] });
+
+    return result;
+  }, [clearCoupleId, queryClient]);
+
+  return { createCouple, finalizeCoupleAction, joinCouple, leaveCouple };
 }
