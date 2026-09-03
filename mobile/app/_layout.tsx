@@ -76,10 +76,6 @@ export default function RootLayout() {
 function RootNavigator({ isAuthenticated, hasCouple }: { isAuthenticated: boolean; hasCouple: boolean }) {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      {/* Deliberately not inside any Stack.Protected block: the password-reset email link
-          (ours://reset-password?email=...&token=...) must open reliably regardless of whether
-          this device happens to be logged in — a guarded route redirects away before showing. */}
-      <Stack.Screen name="reset-password" />
       <Stack.Protected guard={!isAuthenticated}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
@@ -90,6 +86,14 @@ function RootNavigator({ isAuthenticated, hasCouple }: { isAuthenticated: boolea
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="calendar" />
       </Stack.Protected>
+      {/* Deliberately not inside any Stack.Protected block: the password-reset email link
+          (ours://reset-password?email=...&token=...) must open reliably regardless of whether
+          this device happens to be logged in — a guarded route redirects away before showing.
+          Declared *last*: React Navigation defaults a stack's initial route to whichever screen
+          is declared first among the currently-active ones, and this one is always active (no
+          guard) — first would make it win as the default landing screen on every plain launch,
+          not just when actually deep-linked to. */}
+      <Stack.Screen name="reset-password" />
     </Stack>
   );
 }
