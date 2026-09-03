@@ -8,9 +8,11 @@ interface DateTimeFieldProps {
   value: Date;
   onChange: (date: Date) => void;
   error?: string;
+  /** For all-day events: shows/picks a date only, no time-of-day step. Defaults to 'datetime'. */
+  mode?: 'datetime' | 'date';
 }
 
-const formatter = new Intl.DateTimeFormat(undefined, {
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
   month: 'short',
   day: 'numeric',
@@ -18,13 +20,20 @@ const formatter = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
+const dateOnlyFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+
 /**
  * Cross-platform date+time picker. Android's native pickers are dialogs (the library's own
  * recommendation is the imperative DateTimePickerAndroid API, chaining a date dialog into a time
  * dialog); iOS renders an inline spinner that needs its own "Done" affordance to dismiss.
  */
-export function DateTimeField({ label, value, onChange, error }: DateTimeFieldProps) {
+export function DateTimeField({ label, value, onChange, error, mode = 'datetime' }: DateTimeFieldProps) {
   const [showIosPicker, setShowIosPicker] = useState(false);
+  const dateOnly = mode === 'date';
 
   const openAndroidPickers = () => {
     DateTimePickerAndroid.open({
@@ -32,6 +41,10 @@ export function DateTimeField({ label, value, onChange, error }: DateTimeFieldPr
       mode: 'date',
       onValueChange: (_event, selectedDate) => {
         if (!selectedDate) return;
+        if (dateOnly) {
+          onChange(selectedDate);
+          return;
+        }
         DateTimePickerAndroid.open({
           value: selectedDate,
           mode: 'time',
@@ -50,13 +63,13 @@ export function DateTimeField({ label, value, onChange, error }: DateTimeFieldPr
         onPress={() => (Platform.OS === 'android' ? openAndroidPickers() : setShowIosPicker(true))}
         className={`rounded-xl border px-4 py-3 ${error ? 'border-rose' : 'border-clay/30'}`}
       >
-        <Text className="text-base text-ink">{formatter.format(value)}</Text>
+        <Text className="text-base text-ink">{(dateOnly ? dateOnlyFormatter : dateTimeFormatter).format(value)}</Text>
       </Pressable>
       {error ? <Text className="text-xs text-rose">{error}</Text> : null}
 
       {Platform.OS === 'ios' && showIosPicker ? (
         <View className="gap-2">
-          <DateTimePicker value={value} mode="datetime" display="spinner" onValueChange={(_event, date) => onChange(date)} />
+          <DateTimePicker value={value} mode={mode} display="spinner" onValueChange={(_event, date) => onChange(date)} />
           <Button label="Done" variant="secondary" onPress={() => setShowIosPicker(false)} />
         </View>
       ) : null}

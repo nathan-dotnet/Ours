@@ -5,6 +5,7 @@ import { Screen } from '@/components/Screen';
 import { useCreateCalendarEvent } from '@/hooks/useCalendarEvents';
 import { useLocalCouple } from '@/hooks/useCouple';
 import { useAuthStore } from '@/stores/authStore';
+import { allDayRange } from '@/utils/calendarGrouping';
 import type { CalendarEventFormValues } from '@/validation/calendar';
 
 function defaultStart(): Date {
@@ -30,6 +31,10 @@ export default function NewEventScreen() {
     setError(null);
     setIsSubmitting(true);
     try {
+      // All-day events collapse to the wall-clock midnight of the chosen day, in this device's
+      // own offset — read back (even on a partner's device in the same timezone) that still
+      // means "the same day", which is what matters for an all-day event; see mobile/README.md.
+      const [startAt, endAt] = values.allDay ? allDayRange(values.startAt) : [values.startAt, values.endAt];
       const reminderAt =
         values.reminderMinutesBefore === null ? null : new Date(values.startAt.getTime() - values.reminderMinutesBefore * 60_000);
       await createEvent(
@@ -37,8 +42,10 @@ export default function NewEventScreen() {
         {
           title: values.title,
           description: values.description?.trim() || null,
-          startAt: values.startAt.toISOString(),
-          endAt: values.endAt.toISOString(),
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+          allDay: values.allDay,
+          location: values.location?.trim() || null,
           reminderAt: reminderAt?.toISOString() ?? null,
         },
         user.id,
@@ -56,7 +63,7 @@ export default function NewEventScreen() {
   return (
     <Screen scroll>
       <CalendarEventForm
-        initialValues={{ title: '', description: '', startAt: start, endAt: end, reminderMinutesBefore: null }}
+        initialValues={{ title: '', description: '', startAt: start, endAt: end, allDay: false, location: '', reminderMinutesBefore: null }}
         submitLabel="Add event"
         isSubmitting={isSubmitting}
         serverError={error}

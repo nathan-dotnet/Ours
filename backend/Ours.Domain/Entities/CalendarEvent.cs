@@ -22,6 +22,15 @@ public class CalendarEvent : ISyncableEntity
 
     public DateTimeOffset EndAt { get; set; }
 
+    /// <summary>
+    /// When true, StartAt/EndAt are still real UTC instants (local midnight of the intended day,
+    /// in whichever offset the creating device was in) — the UI is what treats the pair as a
+    /// whole-day span instead of a timed one; the server has no separate date-only storage.
+    /// </summary>
+    public bool AllDay { get; set; }
+
+    public string? Location { get; set; }
+
     /// <summary>Optional reminder time. Scheduling an actual device notification for it is Phase 6 — this is just the stored value for now.</summary>
     public DateTimeOffset? ReminderAt { get; set; }
 

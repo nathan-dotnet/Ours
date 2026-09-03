@@ -144,7 +144,9 @@ public class SyncServiceTests
         string title = "Dinner",
         DateTimeOffset? startAt = null,
         DateTimeOffset? endAt = null,
-        string operation = SyncOperation.Create) => new()
+        string operation = SyncOperation.Create,
+        bool allDay = false,
+        string? location = null) => new()
     {
         EntityType = SyncService.CalendarEventEntityType,
         EntityId = entityId,
@@ -155,6 +157,8 @@ public class SyncServiceTests
             title,
             startAt = startAt ?? clientUpdatedAt,
             endAt = endAt ?? clientUpdatedAt.AddHours(1),
+            allDay,
+            location,
         }),
     };
 
@@ -209,6 +213,28 @@ public class SyncServiceTests
         var result = Assert.Single(response.Results);
         Assert.True(result.Accepted);
         Assert.Equal(2, result.ServerVersion);
+    }
+
+    [Fact]
+    public async Task PushAsync_RoundTripsAllDayAndLocation_ThroughPushAndPull()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var eventId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CalendarEventPush(eventId, clock.UtcNow, "Beach trip", allDay: true, location: "Santa Monica")],
+        });
+
+        var pulled = await service.PullAsync(since: null);
+        var change = Assert.Single(pulled.Changes, c => c.EntityId == eventId);
+        // PullAsync is called in-process here (not over HTTP), so Payload is already the typed
+        // DTO instance — unlike the API-level round trip (see CalendarSyncFlowTests), no JSON
+        // round trip has happened yet to turn it into a JsonElement.
+        var payload = Assert.IsType<Ours.Application.DTOs.Calendar.CalendarEventPayloadDto>(change.Payload);
+        Assert.True(payload.AllDay);
+        Assert.Equal("Santa Monica", payload.Location);
     }
 
     [Fact]

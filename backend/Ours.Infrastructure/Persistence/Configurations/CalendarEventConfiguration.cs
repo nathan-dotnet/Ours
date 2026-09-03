@@ -12,6 +12,7 @@ public class CalendarEventConfiguration : IEntityTypeConfiguration<CalendarEvent
 
         builder.Property(e => e.Title).HasMaxLength(200).IsRequired();
         builder.Property(e => e.Description).HasMaxLength(2000);
+        builder.Property(e => e.Location).HasMaxLength(200);
 
         // The couple relationship is unidirectional (no Couple.CalendarEvents navigation) —
         // nothing server-side needs to load a couple's events by traversing from Couple, since

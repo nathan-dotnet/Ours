@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Switch, Text, View } from 'react-native';
 import { calendarEventSchema, REMINDER_OPTIONS, type CalendarEventFormValues } from '../validation/calendar';
 import { Button } from './Button';
 import { DateTimeField } from './DateTimeField';
@@ -11,6 +11,8 @@ export interface CalendarEventFormInitialValues {
   description: string;
   startAt: Date;
   endAt: Date;
+  allDay: boolean;
+  location: string;
   reminderMinutesBefore: number | null;
 }
 
@@ -46,6 +48,7 @@ export function CalendarEventForm({
   });
 
   const reminderMinutesBefore = watch('reminderMinutesBefore');
+  const allDay = watch('allDay');
 
   return (
     <View className="gap-4">
@@ -73,15 +76,36 @@ export function CalendarEventForm({
 
       <Controller
         control={control}
-        name="startAt"
-        render={({ field }) => <DateTimeField label="Starts" value={field.value} onChange={field.onChange} />}
+        name="location"
+        render={({ field }) => (
+          <TextField label="Location (optional)" value={field.value ?? ''} onChangeText={field.onChange} />
+        )}
       />
 
       <Controller
         control={control}
-        name="endAt"
-        render={({ field }) => <DateTimeField label="Ends" value={field.value} onChange={field.onChange} error={errors.endAt?.message} />}
+        name="allDay"
+        render={({ field }) => (
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm font-medium text-ink">All day</Text>
+            <Switch value={field.value} onValueChange={field.onChange} />
+          </View>
+        )}
       />
+
+      <Controller
+        control={control}
+        name="startAt"
+        render={({ field }) => <DateTimeField label="Starts" value={field.value} onChange={field.onChange} mode={allDay ? 'date' : 'datetime'} />}
+      />
+
+      {allDay ? null : (
+        <Controller
+          control={control}
+          name="endAt"
+          render={({ field }) => <DateTimeField label="Ends" value={field.value} onChange={field.onChange} error={errors.endAt?.message} />}
+        />
+      )}
 
       <View className="gap-1.5">
         <Text className="text-sm font-medium text-ink">Reminder</Text>

@@ -165,6 +165,46 @@ public class CalendarSyncFlowTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task AllDayAndLocation_RoundTripThroughPushAndPull()
+    {
+        var (client, alice, bobAuth) = await CreatePairedCoupleAsync(_factory, "allday");
+        var eventId = Guid.NewGuid();
+        var day = DateTimeOffset.UtcNow.Date.AddDays(5);
+
+        Authorize(client, alice.Auth.AccessToken);
+        var pushResponse = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.CalendarEventEntityType,
+                    EntityId = eventId,
+                    Operation = SyncOperation.Create,
+                    ClientUpdatedAt = DateTimeOffset.UtcNow,
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Beach trip",
+                        startAt = day,
+                        endAt = day,
+                        allDay = true,
+                        location = "Santa Monica",
+                    }),
+                },
+            ],
+        });
+        Assert.True((await pushResponse.Content.ReadFromJsonAsync<SyncPushResponseDto>())!.Results[0].Accepted);
+
+        Authorize(client, bobAuth.AccessToken);
+        var pullResult = (await (await client.GetAsync("/api/sync/pull")).Content.ReadFromJsonAsync<SyncPullResponseDto>())!;
+        var change = Assert.Single(pullResult.Changes, c => c.EntityId == eventId);
+        var payload = ((JsonElement)change.Payload!).Deserialize<Ours.Application.DTOs.Calendar.CalendarEventPayloadDto>(
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(payload!.AllDay);
+        Assert.Equal("Santa Monica", payload.Location);
+    }
+
+    [Fact]
     public async Task CoupleA_CannotEditCoupleBsEvent()
     {
         var (clientA, aliceA, _) = await CreatePairedCoupleAsync(_factory, "a");

@@ -64,6 +64,8 @@ public class SyncService(
                     Description = calendarEvent.Description,
                     StartAt = calendarEvent.StartAt,
                     EndAt = calendarEvent.EndAt,
+                    AllDay = calendarEvent.AllDay,
+                    Location = calendarEvent.Location,
                     ReminderAt = calendarEvent.ReminderAt,
                     CreatedByUserId = calendarEvent.CreatedByUserId,
                 },
@@ -252,6 +254,8 @@ public class SyncService(
         existing.Description = payload.Description;
         existing.StartAt = payload.StartAt;
         existing.EndAt = payload.EndAt;
+        existing.AllDay = payload.AllDay;
+        existing.Location = payload.Location;
         existing.ReminderAt = payload.ReminderAt;
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;

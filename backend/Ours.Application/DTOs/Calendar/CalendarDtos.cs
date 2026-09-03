@@ -21,6 +21,11 @@ public sealed class CalendarEventPayloadDto
     [Required]
     public DateTimeOffset EndAt { get; init; }
 
+    public bool AllDay { get; init; }
+
+    [MaxLength(200)]
+    public string? Location { get; init; }
+
     public DateTimeOffset? ReminderAt { get; init; }
 
     /// <summary>

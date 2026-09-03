@@ -149,6 +149,79 @@ describe('calendarEventRepository', () => {
     expect(await calendarEventRepository.getById(event.id)).toBeNull();
   });
 
+  it('createLocally stores allDay and location, defaulting them when omitted', async () => {
+    const withFields = await calendarEventRepository.createLocally(
+      COUPLE_ID,
+      {
+        title: 'Beach trip',
+        description: null,
+        startAt: new Date('2026-07-04T00:00:00.000Z').toISOString(),
+        endAt: new Date('2026-07-04T00:00:00.000Z').toISOString(),
+        allDay: true,
+        location: 'Santa Monica',
+        reminderAt: null,
+      },
+      USER_ID,
+    );
+    expect(await calendarEventRepository.getById(withFields.id)).toMatchObject({ all_day: 1, location: 'Santa Monica' });
+
+    const withoutFields = await calendarEventRepository.createLocally(
+      COUPLE_ID,
+      { title: 'Call', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+      USER_ID,
+    );
+    expect(await calendarEventRepository.getById(withoutFields.id)).toMatchObject({ all_day: 0, location: null });
+  });
+
+  it('updateLocally writes allDay and location', async () => {
+    const event = await calendarEventRepository.createLocally(
+      COUPLE_ID,
+      { title: 'Trip', description: null, startAt: new Date().toISOString(), endAt: new Date().toISOString(), reminderAt: null },
+      USER_ID,
+    );
+
+    await calendarEventRepository.updateLocally(
+      event,
+      {
+        title: 'Trip',
+        description: null,
+        startAt: new Date().toISOString(),
+        endAt: new Date().toISOString(),
+        allDay: true,
+        location: 'Lake house',
+        reminderAt: null,
+      },
+      USER_ID,
+    );
+
+    expect(await calendarEventRepository.getById(event.id)).toMatchObject({ all_day: 1, location: 'Lake house' });
+  });
+
+  it('applyRemoteChange stores allDay and location from a pulled payload, defaulting them when the server omits them', async () => {
+    await calendarEventRepository.applyRemoteChange(
+      COUPLE_ID,
+      'partner-event-allday',
+      {
+        title: 'Reunion',
+        description: null,
+        startAt: new Date('2026-08-01T00:00:00.000Z').toISOString(),
+        endAt: new Date('2026-08-01T00:00:00.000Z').toISOString(),
+        allDay: true,
+        location: 'Grandma\'s house',
+        reminderAt: null,
+        createdByUserId: 'user-bob',
+      },
+      new Date().toISOString(),
+      'user-bob',
+      1,
+    );
+
+    expect(await calendarEventRepository.getById('partner-event-allday')).toMatchObject({
+      all_day: 1,
+      location: "Grandma's house",
+    });
+  });
+
   it('applyRemoteChange updates an existing local row without disturbing its created_by_user_id', async () => {
     const event = await calendarEventRepository.createLocally(
       COUPLE_ID,

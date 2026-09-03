@@ -27,6 +27,8 @@ export interface CalendarEvent {
   description: string | null;
   start_at: string; // ISO datetime
   end_at: string; // ISO datetime
+  all_day: number; // 0 | 1
+  location: string | null;
   reminder_at: string | null; // ISO datetime
   created_by_user_id: string;
   created_at: string;

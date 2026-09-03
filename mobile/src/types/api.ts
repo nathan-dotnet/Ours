@@ -54,6 +54,11 @@ export interface CalendarEventPayload {
   description: string | null;
   startAt: string;
   endAt: string;
+  // Optional on the wire type (rather than required) so a payload constructed before these
+  // fields existed — an older queued sync_queue row, or a test written before this migration —
+  // still type-checks and applies with sensible defaults; see applyRemoteChange/toPayload.
+  allDay?: boolean;
+  location?: string | null;
   reminderAt: string | null;
   /** Only ever present on a pulled change — the server sets it, a push never needs to. */
   createdByUserId?: string;

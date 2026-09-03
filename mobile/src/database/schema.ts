@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -77,4 +77,13 @@ export const MIGRATION_V2 = `
 
   CREATE INDEX IF NOT EXISTS idx_calendar_events_couple_id ON calendar_events (couple_id);
   CREATE INDEX IF NOT EXISTS idx_calendar_events_start_at ON calendar_events (start_at);
+`;
+
+/**
+ * Statements applied when moving from schema version 2 -> 3: adds all-day + location to
+ * calendar_events, additively (existing rows default to a timed event with no location).
+ */
+export const MIGRATION_V3 = `
+  ALTER TABLE calendar_events ADD COLUMN all_day INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE calendar_events ADD COLUMN location TEXT;
 `;

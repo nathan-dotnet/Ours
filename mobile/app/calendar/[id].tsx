@@ -1,10 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { CalendarEventForm } from '@/components/CalendarEventForm';
 import { Screen } from '@/components/Screen';
 import { useCalendarEvent, useDeleteCalendarEvent, useUpdateCalendarEvent } from '@/hooks/useCalendarEvents';
 import { useAuthStore } from '@/stores/authStore';
+import { allDayRange } from '@/utils/calendarGrouping';
 import type { CalendarEventFormValues } from '@/validation/calendar';
 
 export default function EditEventScreen() {
@@ -23,6 +24,7 @@ export default function EditEventScreen() {
     setError(null);
     setIsSubmitting(true);
     try {
+      const [startAt, endAt] = values.allDay ? allDayRange(values.startAt) : [values.startAt, values.endAt];
       const reminderAt =
         values.reminderMinutesBefore === null ? null : new Date(values.startAt.getTime() - values.reminderMinutesBefore * 60_000);
       await updateEvent(
@@ -30,8 +32,10 @@ export default function EditEventScreen() {
         {
           title: values.title,
           description: values.description?.trim() || null,
-          startAt: values.startAt.toISOString(),
-          endAt: values.endAt.toISOString(),
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+          allDay: values.allDay,
+          location: values.location?.trim() || null,
           reminderAt: reminderAt?.toISOString() ?? null,
         },
         user.id,
@@ -44,7 +48,7 @@ export default function EditEventScreen() {
     }
   };
 
-  const onDelete = async () => {
+  const performDelete = async () => {
     if (!event) return;
     setIsDeleting(true);
     try {
@@ -54,6 +58,14 @@ export default function EditEventScreen() {
       setError('Could not delete this event. Please try again.');
       setIsDeleting(false);
     }
+  };
+
+  /** Destructive action — always confirm before a single tap removes the event (see Phase 2 spec). */
+  const onDelete = () => {
+    Alert.alert('Delete this event?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: performDelete },
+    ]);
   };
 
   if (isLoading) {
@@ -89,6 +101,8 @@ export default function EditEventScreen() {
           description: event.description ?? '',
           startAt: new Date(event.start_at),
           endAt: new Date(event.end_at),
+          allDay: Boolean(event.all_day),
+          location: event.location ?? '',
           reminderMinutesBefore,
         }}
         submitLabel="Save changes"

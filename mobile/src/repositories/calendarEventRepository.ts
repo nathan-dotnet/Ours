@@ -11,6 +11,10 @@ export interface CalendarEventInput {
   description: string | null;
   startAt: string; // ISO datetime
   endAt: string; // ISO datetime
+  // Optional (default false/null) so existing callers/tests written before these fields
+  // existed keep compiling — matches the additive spirit of the schema migration that added them.
+  allDay?: boolean;
+  location?: string | null;
   reminderAt: string | null; // ISO datetime
 }
 
@@ -20,6 +24,8 @@ function toPayload(input: CalendarEventInput): CalendarEventPayload {
     description: input.description,
     startAt: input.startAt,
     endAt: input.endAt,
+    allDay: input.allDay ?? false,
+    location: input.location ?? null,
     reminderAt: input.reminderAt,
   };
 }
@@ -57,9 +63,23 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `INSERT INTO calendar_events
-         (id, couple_id, title, description, start_at, end_at, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
-      [id, coupleId, input.title, input.description, input.startAt, input.endAt, input.reminderAt, createdByUserId, now, now, createdByUserId],
+         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+      [
+        id,
+        coupleId,
+        input.title,
+        input.description,
+        input.startAt,
+        input.endAt,
+        input.allDay ? 1 : 0,
+        input.location ?? null,
+        input.reminderAt,
+        createdByUserId,
+        now,
+        now,
+        createdByUserId,
+      ],
     );
 
     await syncQueueRepository.enqueue(CALENDAR_EVENT_ENTITY_TYPE, id, 'CREATE', toPayload(input));
@@ -71,6 +91,8 @@ export const calendarEventRepository = {
       description: input.description,
       start_at: input.startAt,
       end_at: input.endAt,
+      all_day: input.allDay ? 1 : 0,
+      location: input.location ?? null,
       reminder_at: input.reminderAt,
       created_by_user_id: createdByUserId,
       created_at: now,
@@ -88,9 +110,20 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `UPDATE calendar_events
-       SET title = ?, description = ?, start_at = ?, end_at = ?, reminder_at = ?, updated_at = ?, updated_by_user_id = ?
+       SET title = ?, description = ?, start_at = ?, end_at = ?, all_day = ?, location = ?, reminder_at = ?, updated_at = ?, updated_by_user_id = ?
        WHERE id = ?`,
-      [input.title, input.description, input.startAt, input.endAt, input.reminderAt, updatedAt, updatedByUserId, event.id],
+      [
+        input.title,
+        input.description,
+        input.startAt,
+        input.endAt,
+        input.allDay ? 1 : 0,
+        input.location ?? null,
+        input.reminderAt,
+        updatedAt,
+        updatedByUserId,
+        event.id,
+      ],
     );
 
     await syncQueueRepository.enqueue(CALENDAR_EVENT_ENTITY_TYPE, event.id, 'UPDATE', toPayload(input));
@@ -131,13 +164,15 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `INSERT INTO calendar_events
-         (id, couple_id, title, description, start_at, end_at, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          description = excluded.description,
          start_at = excluded.start_at,
          end_at = excluded.end_at,
+         all_day = excluded.all_day,
+         location = excluded.location,
          reminder_at = excluded.reminder_at,
          updated_at = excluded.updated_at,
          updated_by_user_id = excluded.updated_by_user_id,
@@ -150,6 +185,8 @@ export const calendarEventRepository = {
         payload.description,
         payload.startAt,
         payload.endAt,
+        payload.allDay ? 1 : 0,
+        payload.location ?? null,
         payload.reminderAt,
         // The server always sets this on a pulled change; falling back to updatedByUserId would
         // only ever matter if that contract were ever violated.

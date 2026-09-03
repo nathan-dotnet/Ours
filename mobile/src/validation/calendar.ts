@@ -15,9 +15,14 @@ export const calendarEventSchema = z
     description: z.string().trim().max(2000).optional(),
     startAt: z.date(),
     endAt: z.date(),
+    allDay: z.boolean(),
+    location: z.string().trim().max(200).optional(),
     reminderMinutesBefore: z.number().nullable(),
   })
-  .refine((data) => data.endAt > data.startAt, {
+  .refine((data) => data.allDay || data.endAt > data.startAt, {
+    // An all-day event's start/end both collapse to the same local midnight (see
+    // app/calendar/new.tsx and [id].tsx), so the strict "after" check only makes sense for
+    // timed events — it would otherwise reject every valid all-day event.
     message: 'End time must be after start time',
     path: ['endAt'],
   });
