@@ -4,6 +4,7 @@ using Ours.Application.Abstractions;
 using Ours.Application.Common;
 using Ours.Application.DTOs.Calendar;
 using Ours.Application.DTOs.Couples;
+using Ours.Application.DTOs.Expenses;
 using Ours.Application.DTOs.Sync;
 using Ours.Domain.Entities;
 
@@ -24,6 +25,10 @@ public class SyncService(
 {
     public const string CoupleProfileEntityType = "couple_profile";
     public const string CalendarEventEntityType = "calendar_event";
+    public const string ExpenseEntityType = "expense";
+
+    /// <summary>Application-level sanity ceiling — independent of the numeric(18,2) column's actual headroom — rejecting an obviously-mistyped amount (e.g. an extra zero) rather than silently accepting it.</summary>
+    private const decimal MaxExpenseAmount = 10_000_000m;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -75,6 +80,33 @@ public class SyncService(
             });
         }
 
+        var expenses = await db.Expenses
+            .Where(e => e.CoupleId == coupleId && (since == null || e.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var expense in expenses)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = ExpenseEntityType,
+                EntityId = expense.Id,
+                Operation = expense.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = expense.IsDeleted ? null : new ExpensePayloadDto
+                {
+                    Amount = expense.Amount,
+                    Currency = expense.Currency,
+                    Description = expense.Description,
+                    Category = expense.Category,
+                    ExpenseDate = expense.ExpenseDate,
+                    Notes = expense.Notes,
+                    PaidByUserId = expense.PaidByUserId,
+                    CreatedByUserId = expense.CreatedByUserId,
+                },
+                UpdatedAt = expense.UpdatedAt,
+                UpdatedByUserId = expense.UpdatedByUserId,
+                Version = expense.Version,
+            });
+        }
+
         // Future entity types append their own "changed since `since`" checks here.
 
         return new SyncPullResponseDto { ServerTime = serverTime, Changes = changes };
@@ -109,6 +141,7 @@ public class SyncService(
             {
                 CoupleProfileEntityType => await ApplyCoupleProfileChangeAsync(coupleId, item, ct),
                 CalendarEventEntityType => await ApplyCalendarEventChangeAsync(coupleId, item, ct),
+                ExpenseEntityType => await ApplyExpenseChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
             results.Add(result);
@@ -263,6 +296,121 @@ public class SyncService(
 
         return Accepted(item, existing.Version, existing.UpdatedAt);
     }
+
+    /// <summary>Same create-vs-update-by-existence shape as <see cref="ApplyCalendarEventChangeAsync"/> — see its doc comment.</summary>
+    private async Task<SyncPushResultItemDto> ApplyExpenseChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.Expenses.FirstOrDefaultAsync(e => e.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's expenses.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                // Already gone (or a retry of a delete that already landed) — idempotent success.
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        ExpensePayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<ExpensePayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload.Amount <= 0)
+        {
+            return Rejected(item, "Amount must be greater than zero.");
+        }
+
+        if (payload.Amount > MaxExpenseAmount)
+        {
+            return Rejected(item, "Amount exceeds the maximum allowed.");
+        }
+
+        if (!IsValidCurrencyCode(payload.Currency))
+        {
+            return Rejected(item, "Invalid currency code.");
+        }
+
+        if (!ExpenseCategory.IsValid(payload.Category))
+        {
+            return Rejected(item, "Invalid category.");
+        }
+
+        if (payload.PaidByUserId is Guid paidByUserId)
+        {
+            // Never trust the client's claim that a given user id is the couple's partner — a
+            // fake or stale (e.g. an ex-partner's) id must be rejected, not silently stored.
+            var isActiveMember = await db.CoupleMembers
+                .AnyAsync(m => m.CoupleId == coupleId && m.UserId == paidByUserId && m.LeftAt == null, ct);
+            if (!isActiveMember)
+            {
+                return Rejected(item, "paidByUserId must be an active member of your couple.");
+            }
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            // First time the server has seen this id — trust the device-generated UUID, same as
+            // calendar events (offline-first: ids are minted on-device, not assigned server-side).
+            existing = new Expense
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.Expenses.Add(existing);
+        }
+
+        existing.Amount = payload.Amount;
+        existing.Currency = payload.Currency;
+        existing.Description = payload.Description;
+        existing.Category = payload.Category;
+        existing.ExpenseDate = payload.ExpenseDate;
+        existing.Notes = payload.Notes;
+        existing.PaidByUserId = payload.PaidByUserId;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    private static bool IsValidCurrencyCode(string? currency) =>
+        currency is not null && currency.Length == 3 && currency.All(c => c is >= 'A' and <= 'Z');
 
     private static SyncPushResultItemDto Accepted(SyncPushItemDto item, int? serverVersion, DateTimeOffset? serverUpdatedAt) => new()
     {

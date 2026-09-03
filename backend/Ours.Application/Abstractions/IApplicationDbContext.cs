@@ -15,6 +15,7 @@ public interface IApplicationDbContext
     DbSet<CoupleMember> CoupleMembers { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<CalendarEvent> CalendarEvents { get; }
+    DbSet<Expense> Expenses { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

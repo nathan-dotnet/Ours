@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Ours.Application.Common;
+using Ours.Application.DTOs.Expenses;
 using Ours.Application.DTOs.Sync;
 using Ours.Application.Services;
 using Ours.Application.Tests.Fakes;
@@ -406,6 +407,297 @@ public class SyncServiceTests
 
         var change = Assert.Single(response.Changes, c => c.EntityType == SyncService.CalendarEventEntityType);
         Assert.Equal(newEventId, change.EntityId);
+    }
+
+    private static SyncPushItemDto ExpensePush(
+        Guid entityId,
+        DateTimeOffset clientUpdatedAt,
+        object amount,
+        string currency = "PHP",
+        string category = "Food",
+        DateOnly? expenseDate = null,
+        string operation = SyncOperation.Create,
+        Guid? paidByUserId = null) => new()
+    {
+        EntityType = SyncService.ExpenseEntityType,
+        EntityId = entityId,
+        Operation = operation,
+        ClientUpdatedAt = clientUpdatedAt,
+        Payload = JsonSerializer.SerializeToElement(new
+        {
+            amount,
+            currency,
+            category,
+            expenseDate = expenseDate ?? DateOnly.FromDateTime(clientUpdatedAt.UtcDateTime),
+            description = "Dinner",
+            paidByUserId,
+        }),
+    };
+
+    [Fact]
+    public async Task PushAsync_CreatesExpense_WithClientGeneratedId()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var expenseId = Guid.NewGuid();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(expenseId, clock.UtcNow, 250.00m)],
+        });
+
+        var result = Assert.Single(response.Results);
+        Assert.True(result.Accepted);
+        Assert.Equal(1, result.ServerVersion);
+    }
+
+    [Fact]
+    public async Task PushAsync_UpdatesExistingExpense_AndBumpsVersion()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var expenseId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(expenseId, clock.UtcNow, 250.00m)] });
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(expenseId, clock.UtcNow, 300.00m, operation: SyncOperation.Update)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        Assert.Equal(2, response.Results[0].ServerVersion);
+    }
+
+    [Fact]
+    public async Task PushAsync_SoftDeletesExpense()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var expenseId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(expenseId, clock.UtcNow, 250.00m)] });
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        var deleteResponse = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.ExpenseEntityType,
+                    EntityId = expenseId,
+                    Operation = SyncOperation.Delete,
+                    ClientUpdatedAt = clock.UtcNow,
+                    Payload = JsonSerializer.SerializeToElement<object?>(null),
+                },
+            ],
+        });
+        Assert.True(Assert.Single(deleteResponse.Results).Accepted);
+
+        // A soft delete must still surface via pull (as a tombstone) so the partner's device
+        // learns it's gone — a hard delete would make that impossible to detect.
+        var pulled = await service.PullAsync(since: null);
+        var change = Assert.Single(pulled.Changes, c => c.EntityId == expenseId);
+        Assert.Equal(SyncOperation.Delete, change.Operation);
+        Assert.Null(change.Payload);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsZeroAmount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 0m)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsNegativeAmount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, -50.00m)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsExcessiveAmount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 99_999_999.99m)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsInvalidCategory()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 100.00m, category: "NotACategory")],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsInvalidCurrency()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 100.00m, currency: "php")], // lowercase — not a valid ISO 4217 code shape
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsInvalidPayload()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.ExpenseEntityType,
+                    EntityId = Guid.NewGuid(),
+                    Operation = SyncOperation.Create,
+                    ClientUpdatedAt = clock.UtcNow,
+                    Payload = JsonSerializer.SerializeToElement("not an object"),
+                },
+            ],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsPaidByUserId_WhenNotAnActiveMemberOfTheCallersCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 100.00m, paidByUserId: Guid.NewGuid())],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_AcceptsPaidByUserId_WhenItIsAnActiveMemberOfTheCallersCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var partnerId = Guid.NewGuid();
+        db.CoupleMembers.Add(new CoupleMember { Id = Guid.NewGuid(), CoupleId = couple.Id, UserId = partnerId, JoinedAt = clock.UtcNow });
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 100.00m, paidByUserId: partnerId)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task MoneyPrecision_100Point10PlusPoint20_RoundTripsToExactly100Point30()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(firstId, clock.UtcNow, 100.10m)] });
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(secondId, clock.UtcNow, 0.20m)] });
+
+        var pulled = await service.PullAsync(since: null);
+        var first = Assert.IsType<ExpensePayloadDto>(Assert.Single(pulled.Changes, c => c.EntityId == firstId).Payload);
+        var second = Assert.IsType<ExpensePayloadDto>(Assert.Single(pulled.Changes, c => c.EntityId == secondId).Payload);
+
+        // decimal arithmetic is exact — unlike the classic 0.1 + 0.2 !== 0.3 floating-point trap,
+        // this is exactly 100.30m, not 100.30000000000001m.
+        Assert.Equal(100.30m, first.Amount + second.Amount);
+    }
+
+    [Fact]
+    public async Task MoneyPrecision_1999Point99PlusPoint01_RoundTripsToExactly2000()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(firstId, clock.UtcNow, 1999.99m)] });
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(secondId, clock.UtcNow, 0.01m)] });
+
+        var pulled = await service.PullAsync(since: null);
+        var first = Assert.IsType<ExpensePayloadDto>(Assert.Single(pulled.Changes, c => c.EntityId == firstId).Payload);
+        var second = Assert.IsType<ExpensePayloadDto>(Assert.Single(pulled.Changes, c => c.EntityId == secondId).Payload);
+
+        Assert.Equal(2000.00m, first.Amount + second.Amount);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsExpenseBelongingToAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var expenseId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [ExpensePush(expenseId, clock.UtcNow, 100.00m)] });
+
+        var otherCouple = new Couple { Id = Guid.NewGuid(), InviteCode = "OURS-OTHR", CreatedByUserId = Guid.NewGuid(), UpdatedByUserId = Guid.NewGuid(), Version = 1 };
+        db.Couples.Add(otherCouple);
+        await db.SaveChangesAsync();
+        currentUser.CoupleId = otherCouple.Id;
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(expenseId, clock.UtcNow.AddMinutes(1), 999.00m, operation: SyncOperation.Update)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAnyExpenseMutation_WhenTheCallersCoupleHasEnded()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        couple.IsDeleted = true;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ForbiddenAppException>(() => service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [ExpensePush(Guid.NewGuid(), clock.UtcNow, 100.00m)],
+        }));
     }
 
     [Fact]
