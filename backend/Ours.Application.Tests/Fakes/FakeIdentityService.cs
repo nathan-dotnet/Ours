@@ -11,6 +11,7 @@ namespace Ours.Application.Tests.Fakes;
 public class FakeIdentityService : IIdentityService
 {
     private readonly Dictionary<string, (ApplicationUser User, string Password)> _users = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<Guid, string> _resetTokens = [];
 
     public Task<CreateUserResult> CreateUserAsync(string email, string password, string displayName)
     {
@@ -39,4 +40,28 @@ public class FakeIdentityService : IIdentityService
 
     public Task<bool> CheckPasswordAsync(ApplicationUser user, string password) =>
         Task.FromResult(_users.TryGetValue(user.Email!, out var entry) && entry.Password == password);
+
+    public Task<string> GeneratePasswordResetTokenAsync(ApplicationUser user)
+    {
+        var token = $"reset-{Guid.NewGuid()}";
+        _resetTokens[user.Id] = token;
+        return Task.FromResult(token);
+    }
+
+    public Task<IdentityOperationResult> ResetPasswordAsync(ApplicationUser user, string token, string newPassword)
+    {
+        if (!_resetTokens.TryGetValue(user.Id, out var expectedToken) || expectedToken != token)
+        {
+            return Task.FromResult(new IdentityOperationResult(false, ["Invalid token."], ["InvalidToken"]));
+        }
+
+        if (newPassword.Length < 8)
+        {
+            return Task.FromResult(new IdentityOperationResult(false, ["Passwords must be at least 8 characters."], ["PasswordTooShort"]));
+        }
+
+        _users[user.Email!] = (user, newPassword);
+        _resetTokens.Remove(user.Id); // one-time use, same as the real DataProtectorTokenProvider's stamp rotation making replay fail
+        return Task.FromResult(new IdentityOperationResult(true, [], []));
+    }
 }

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using Ours.Application.Abstractions;
 using Ours.Application.Common;
 using Ours.Application.DTOs.Couples;
 using Ours.Application.Services;
@@ -13,7 +15,9 @@ public class CoupleServiceTests
     {
         var db = TestDbContextFactory.Create();
         var currentUser = new FakeCurrentUserService();
-        var authService = new AuthService(new FakeIdentityService(), db, new FakeJwtTokenService(), new FakeDateTimeProvider());
+        var authService = new AuthService(
+            new FakeIdentityService(), db, new FakeJwtTokenService(), new FakeDateTimeProvider(),
+            new FakeEmailService(), Options.Create(new AppOptions()));
         var service = new CoupleService(db, currentUser, new FakeInviteCodeGenerator(), new FakeDateTimeProvider(), authService);
         return (service, db, currentUser);
     }
