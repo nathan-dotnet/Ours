@@ -5,7 +5,8 @@ a generic sync queue reconciles with the backend when a connection is available.
 
 ```text
 app/                      Expo Router routes
-  (auth)/                 login, register
+  (auth)/                 login, register, forgot-password
+  reset-password.tsx      top-level (not inside (auth)) — see "Deep linking" below
   (onboarding)/           create-couple, join-couple (the one online-only flow)
   (tabs)/                 Home, Calendar, Settings — the main app
   calendar/               new / [id] — create + edit event modals
@@ -13,8 +14,8 @@ src/
   database/                SQLite open + migrations (schema.ts, migrations.ts, db.ts)
   repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts)
   sync/                    sync_queue repository + push/pull engine, reused by every feature
-  services/                API client (with auto token-refresh), connectivity (NetInfo)
-  stores/                  Zustand: auth session, sync status
+  services/                API client (with auto token-refresh), connectivity (NetInfo), biometricAuth.ts
+  stores/                  Zustand: auth session (+ biometric gate), sync status
   hooks/                   React Query + action hooks tying the above together for screens
   components/, types/, validation/, utils/
 ```
@@ -83,15 +84,41 @@ create/edit/delete all work offline (SQLite + sync_queue immediately, pushed onc
 delete surfaces to the partner's device as a pulled tombstone rather than the row just vanishing
 unexplained — see `calendarEventRepository.applyRemoteChange`.
 
+## Authentication: password reset + biometric login
+
+- **Forgot/reset password**: `app/(auth)/forgot-password.tsx` calls `POST /api/auth/forgot-password`
+  (same request/response regardless of whether the email exists — nothing to branch on here
+  either). The email's link (`ours://reset-password?email=...&token=...`) opens
+  `app/reset-password.tsx`, which is deliberately a **top-level** route, not nested inside
+  `(auth)` — a route inside a `Stack.Protected` block redirects away before rendering if its
+  guard is false, so a route a deep link must always reach can't live inside one. No session is
+  established on a successful reset; the user returns to Login.
+- **Biometric login**: never stores a password or any credential on-device. `enableBiometricLogin()`
+  (`src/services/biometricAuth.ts`) writes a throwaway opaque value into a SecureStore key created
+  with `requireAuthentication: true` — from then on, the **OS** (Keychain/Keystore), not app code,
+  gates every read of it behind Face ID/Fingerprint/device credential. The actual session
+  continues to live in the same plain, ungated SecureStore key `authStore.ts` always used; what
+  biometrics gate is a separate flag, `isBiometricGatePassed`, that the root layout also requires
+  (alongside a non-null session) before treating the user as authenticated. A successful OS gate
+  is not enough by itself — `useBiometricAuth.ts`'s `attemptBiometricLogin()` still calls the
+  existing `/api/auth/refresh` afterward, and a revoked/expired session is cleared (and biometric
+  login turned off) rather than silently retried, so a stale "quick login" preference can never
+  outlive the session behind it — including after a password reset, which revokes every refresh
+  token and thus invalidates any device's biometric login on its next use, automatically.
+
 ## Known limitations
 
 - No iOS Simulator runtime or working Android Emulator was available in the environment this was
   built in, so the UI was verified via `tsc --noEmit`, `expo export` (both platforms bundle
   cleanly), and unit/repository tests — not an actual on-device run. Run `npx expo start` and open
-  it on a simulator/device to confirm visually before shipping.
+  it on a simulator/device to confirm visually before shipping. This applies to the deep link and
+  biometric prompts specifically as well — see the phase report's "Manual Verification" section.
 - Push notifications (`expo-notifications` is installed but unconfigured) and photo upload
   (`expo-image-picker` installed, unused) are foundation-only — wired up in later phases.
 - Calendar reminders are stored (`reminder_at`) but nothing schedules an actual device
   notification for one yet — that's Phase 6.
 - The Calendar tab is a chronological agenda list grouped by day, not a month-grid view — kept
   deliberately simple for Phase 2 rather than adding a calendar-grid UI library.
+- No "Enable biometric login?" prompt after registration (only after a normal login) — the spec
+  frames this as a first-*login* moment, and a brand-new account has nothing to protect yet since
+  it goes straight to onboarding.

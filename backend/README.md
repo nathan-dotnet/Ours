@@ -76,6 +76,17 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.
+- **Password reset**: `/api/auth/forgot-password` never reveals whether an email exists — same
+  response either way, and `AuthService.ForgotPasswordAsync` just does nothing when it doesn't.
+  Reset tokens are ASP.NET Core Identity's built-in "Default" token provider
+  (`DataProtectorTokenProvider`, 1-hour `TokenLifespan`, configured in DependencyInjection.cs) —
+  never persisted anywhere, validated by decrypting/verifying rather than a DB lookup, and
+  invalidated on use because a successful reset rotates the user's security stamp. A successful
+  reset also revokes every existing `RefreshToken` for that user (same table, same `RevokedAt`
+  mechanism logout uses — no parallel session system). `IEmailService` (Infrastructure/Email)
+  keeps SMTP/provider code out of AuthService entirely; `Email:Provider=development` (the
+  default) just logs the reset link instead of sending anything, so local dev needs zero email
+  credentials — `Email:Provider=smtp` sends real mail via MailKit.
 - **Couple**: `Couple` + `CoupleMember` (join table, unique index on `UserId` — a user belongs to
   at most one couple). Creating/joining are the one part of the app that requires the server (an
   invite code has to come from somewhere) — everything else is designed to work offline-first on
@@ -89,7 +100,12 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 
 - CORS is wide open (`AllowAnyOrigin`) — fine for a mobile-only client, revisit before any
   browser-based client exists.
-- No rate limiting on `/api/auth/*` yet.
+- No rate limiting on `/api/auth/*` yet — includes forgot-password, which could otherwise be
+  used to spam an inbox.
 - SignalR isn't wired up yet (Phase 6).
 - No server-side reminder scheduling — `CalendarEvent.ReminderAt` is stored but nothing acts on
   it yet; actual notification delivery is Phase 6.
+- A short-lived (≤15 min) access token issued just before a password reset stays cryptographically
+  valid until it naturally expires — only the *refresh* token is revoked immediately. Instant
+  revocation of already-issued JWTs would need a server-side check on every request (a token
+  blocklist), which is exactly the kind of second session mechanism this phase was told not to add.
