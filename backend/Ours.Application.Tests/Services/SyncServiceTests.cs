@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Ours.Application.Common;
 using Ours.Application.DTOs.Sync;
 using Ours.Application.Services;
 using Ours.Application.Tests.Fakes;
@@ -9,7 +10,7 @@ namespace Ours.Application.Tests.Services;
 
 public class SyncServiceTests
 {
-    private static async Task<(SyncService Service, FakeDateTimeProvider Clock, Couple Couple)> BuildAsync(FakeCurrentUserService currentUser)
+    private static async Task<(SyncService Service, FakeDateTimeProvider Clock, Couple Couple, Infrastructure.Persistence.AppDbContext Db)> BuildAsync(FakeCurrentUserService currentUser)
     {
         var db = TestDbContextFactory.Create();
         var clock = new FakeDateTimeProvider();
@@ -28,7 +29,7 @@ public class SyncServiceTests
         await db.SaveChangesAsync();
 
         currentUser.CoupleId = couple.Id;
-        return (new SyncService(db, currentUser, clock), clock, couple);
+        return (new SyncService(db, currentUser, clock), clock, couple, db);
     }
 
     private static SyncPushItemDto CoupleProfilePush(Guid entityId, DateTimeOffset clientUpdatedAt, string nickname) => new()
@@ -44,7 +45,7 @@ public class SyncServiceTests
     public async Task PushAsync_AppliesUpdate_AndBumpsVersion()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
         clock.UtcNow = clock.UtcNow.AddMinutes(1);
 
         var response = await service.PushAsync(new SyncPushRequestDto
@@ -61,7 +62,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsStaleWrite()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
 
         var staleTimestamp = couple.UpdatedAt.AddMinutes(-10);
         var response = await service.PushAsync(new SyncPushRequestDto
@@ -78,7 +79,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsUnknownEntityType()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
 
         var response = await service.PushAsync(new SyncPushRequestDto
         {
@@ -102,7 +103,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsEntityIdNotMatchingCallersCouple()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
         var otherCoupleId = Guid.NewGuid();
 
         var response = await service.PushAsync(new SyncPushRequestDto
@@ -118,7 +119,7 @@ public class SyncServiceTests
     public async Task PullAsync_WithNoSinceCursor_ReturnsCurrentState()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, _, couple) = await BuildAsync(currentUser);
+        var (service, _, couple, _) = await BuildAsync(currentUser);
 
         var response = await service.PullAsync(since: null);
 
@@ -130,7 +131,7 @@ public class SyncServiceTests
     public async Task PullAsync_WithFutureSinceCursor_ReturnsNoChanges()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
 
         var response = await service.PullAsync(since: clock.UtcNow.AddMinutes(5));
 
@@ -161,7 +162,7 @@ public class SyncServiceTests
     public async Task PushAsync_CreatesCalendarEvent_WithClientGeneratedId()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
 
         var response = await service.PushAsync(new SyncPushRequestDto
@@ -179,7 +180,7 @@ public class SyncServiceTests
     public async Task PushAsync_RetriedCreate_IsIdempotent()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         var push = CalendarEventPush(eventId, clock.UtcNow, "Dinner");
 
@@ -195,7 +196,7 @@ public class SyncServiceTests
     public async Task PushAsync_UpdatesExistingCalendarEvent_AndBumpsVersion()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(eventId, clock.UtcNow, "Dinner")] });
 
@@ -214,7 +215,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsStaleCalendarEventUpdate()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(eventId, clock.UtcNow)] });
 
@@ -233,7 +234,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsMissingTitle()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
 
         var response = await service.PushAsync(new SyncPushRequestDto
         {
@@ -247,7 +248,7 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsEndBeforeStart()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
 
         var response = await service.PushAsync(new SyncPushRequestDto
         {
@@ -261,7 +262,7 @@ public class SyncServiceTests
     public async Task PushAsync_SoftDeletesCalendarEvent()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(eventId, clock.UtcNow)] });
 
@@ -294,7 +295,7 @@ public class SyncServiceTests
     public async Task PushAsync_DeletingAlreadyGoneEvent_IsIdempotent()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
 
         var response = await service.PushAsync(new SyncPushRequestDto
         {
@@ -318,14 +319,29 @@ public class SyncServiceTests
     public async Task PushAsync_RejectsCalendarEventBelongingToAnotherCouple()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, db) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(eventId, clock.UtcNow)] });
 
-        // Same service/db, but now acting as a session for a different couple — FakeCurrentUserService's
-        // CoupleId is read fresh on every call, so this simulates a second couple without needing a
-        // second in-memory database.
-        currentUser.CoupleId = Guid.NewGuid();
+        // Same service/db, but now acting as a session for a second, genuinely-real (and active)
+        // couple — FakeCurrentUserService's CoupleId is read fresh on every call, so switching it
+        // simulates a second couple without needing a second in-memory database. It has to be a
+        // real row (not just a fresh Guid) now that PushAsync itself verifies the caller's own
+        // couple exists and is active before dispatching to any per-entity handler.
+        var otherCouple = new Couple
+        {
+            Id = Guid.NewGuid(),
+            InviteCode = "OURS-OTHER",
+            CreatedByUserId = Guid.NewGuid(),
+            UpdatedByUserId = Guid.NewGuid(),
+            CreatedAt = clock.UtcNow,
+            UpdatedAt = clock.UtcNow,
+            Version = 1,
+        };
+        db.Couples.Add(otherCouple);
+        await db.SaveChangesAsync();
+        currentUser.CoupleId = otherCouple.Id;
+
         var response = await service.PushAsync(new SyncPushRequestDto
         {
             Changes = [CalendarEventPush(eventId, clock.UtcNow.AddMinutes(1), "Hijacked", operation: SyncOperation.Update)],
@@ -338,7 +354,7 @@ public class SyncServiceTests
     public async Task PullAsync_WithNoSinceCursor_IncludesCalendarEvents()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, couple) = await BuildAsync(currentUser);
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
         var eventId = Guid.NewGuid();
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(eventId, clock.UtcNow, "Dinner")] });
 
@@ -352,7 +368,7 @@ public class SyncServiceTests
     public async Task PullAsync_OnlyReturnsEventsChangedSinceCursor()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
-        var (service, clock, _) = await BuildAsync(currentUser);
+        var (service, clock, _, _) = await BuildAsync(currentUser);
         await service.PushAsync(new SyncPushRequestDto { Changes = [CalendarEventPush(Guid.NewGuid(), clock.UtcNow, "Old event")] });
 
         var cursor = clock.UtcNow.AddSeconds(1);
@@ -364,5 +380,35 @@ public class SyncServiceTests
 
         var change = Assert.Single(response.Changes, c => c.EntityType == SyncService.CalendarEventEntityType);
         Assert.Equal(newEventId, change.EntityId);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAnyMutation_WhenTheCallersCoupleHasEnded()
+    {
+        // Simulates a stale JWT: the couple ended (e.g. the partner left) after this token was
+        // issued, so the coupleId claim is still present but no longer refers to an active couple.
+        // Rejected up front — the whole request 403s before reaching any per-entity handler.
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        couple.IsDeleted = true;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ForbiddenAppException>(() => service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CalendarEventPush(Guid.NewGuid(), clock.UtcNow, "Should be rejected")],
+        }));
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsMutation_WhenCoupleIdClaimNoLongerExistsAtAll()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid(), CoupleId = Guid.NewGuid() };
+        var db = TestDbContextFactory.Create();
+        var service = new SyncService(db, currentUser, new FakeDateTimeProvider());
+
+        await Assert.ThrowsAsync<ForbiddenAppException>(() => service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CalendarEventPush(Guid.NewGuid(), DateTimeOffset.UtcNow, "Should be rejected")],
+        }));
     }
 }
