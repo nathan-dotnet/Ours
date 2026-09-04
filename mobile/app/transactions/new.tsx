@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { ExpenseTransactionForm, IncomeTransactionForm, TransferTransactionForm } from '@/components/TransactionForms';
@@ -19,18 +19,26 @@ const KIND_OPTIONS: { kind: Kind; emoji: string; label: string }[] = [
   { kind: 'Transfer', emoji: '🔄', label: 'Transfer' },
 ];
 
+const VALID_KINDS: readonly string[] = ['Expense', 'Income', 'Transfer'];
+
 export default function NewTransactionScreen() {
   const router = useRouter();
+  // Contextual actions (Money dashboard's "+ Add Expense", an account's "Transfer Money"/"Add
+  // Income") deep-link straight past the kind picker and preselect the account they were
+  // launched from — see accounts/[id].tsx and (tabs)/money.tsx.
+  const params = useLocalSearchParams<{ type?: string; accountId?: string }>();
+  const presetKind = VALID_KINDS.includes(params.type ?? '') ? (params.type as Kind) : null;
   const user = useAuthStore((s) => s.session?.user);
   const { data: coupleData } = useLocalCouple();
   const { data: accounts } = useActiveAccounts(coupleData?.couple.id);
   const createTransaction = useCreateTransaction();
-  const [kind, setKind] = useState<Kind | null>(null);
+  const [kind, setKind] = useState<Kind | null>(presetKind);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const allAccounts = accounts ?? [];
   const members = coupleData?.members ?? [];
+  const presetAccountId = params.accountId && allAccounts.some((a) => a.id === params.accountId) ? params.accountId : allAccounts[0]?.id;
 
   if (allAccounts.length === 0) {
     return (
@@ -135,7 +143,7 @@ export default function NewTransactionScreen() {
         <ExpenseTransactionForm
           accounts={allAccounts}
           members={members}
-          initialValues={{ amountText: '', category: 'Other', accountId: allAccounts[0].id, description: '', transactionDate: today, notes: '', paidByUserId: null }}
+          initialValues={{ amountText: '', category: 'Other', accountId: presetAccountId!, description: '', transactionDate: today, notes: '', paidByUserId: null }}
           submitLabel="Add expense"
           isSubmitting={isSubmitting}
           serverError={error}
@@ -144,7 +152,7 @@ export default function NewTransactionScreen() {
       ) : kind === 'Income' ? (
         <IncomeTransactionForm
           accounts={allAccounts}
-          initialValues={{ amountText: '', category: 'Other', accountId: allAccounts[0].id, description: '', transactionDate: today, notes: '' }}
+          initialValues={{ amountText: '', category: 'Other', accountId: presetAccountId!, description: '', transactionDate: today, notes: '' }}
           submitLabel="Add income"
           isSubmitting={isSubmitting}
           serverError={error}
@@ -155,8 +163,8 @@ export default function NewTransactionScreen() {
           accounts={allAccounts}
           initialValues={{
             amountText: '',
-            accountId: allAccounts[0].id,
-            destinationAccountId: allAccounts[1]?.id ?? '',
+            accountId: presetAccountId!,
+            destinationAccountId: allAccounts.find((a) => a.id !== presetAccountId)?.id ?? '',
             transactionDate: today,
             notes: '',
           }}

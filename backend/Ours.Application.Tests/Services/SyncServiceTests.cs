@@ -450,13 +450,14 @@ public class SyncServiceTests
         string type = "Bank",
         decimal openingBalance = 10_000m,
         bool isActive = true,
+        string currency = "PHP",
         string operation = SyncOperation.Create) => new()
     {
         EntityType = SyncService.AccountEntityType,
         EntityId = entityId,
         Operation = operation,
         ClientUpdatedAt = clientUpdatedAt,
-        Payload = JsonSerializer.SerializeToElement(new { name, type, icon = "bpi", openingBalance, currency = "PHP", isActive }),
+        Payload = JsonSerializer.SerializeToElement(new { name, type, icon = "bpi", openingBalance, currency, isActive }),
     };
 
     private static SyncPushItemDto TransactionPush(
@@ -1033,5 +1034,115 @@ public class SyncServiceTests
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.AccountEntityType);
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.TransactionEntityType);
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.BudgetEntityType);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Money UI/UX update: unlimited accounts, transfers between any two accounts
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task PushAsync_SupportsAnArbitraryNumberOfAccounts_NoArtificialCap()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var names = new[] { "BPI", "GCash", "MariBank", "Cash", "BDO", "Maya", "UnionBank", "CIMB", "Emergency Fund" };
+
+        foreach (var name in names)
+        {
+            var response = await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(Guid.NewGuid(), clock.UtcNow, name: name)] });
+            Assert.True(Assert.Single(response.Results).Accepted);
+        }
+
+        Assert.Equal(names.Length, await db.Accounts.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreatingAnAccount_WithAnOpeningBalance_DoesNotDoubleCount()
+    {
+        // Creating an account is not a Transaction — no Income/Expense row should ever be
+        // implied by it, so a fresh account's balance is exactly its opening balance.
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow, name: "Cash", openingBalance: 2_000m)] });
+
+        Assert.Equal(0, await db.Transactions.CountAsync());
+        var account = await db.Accounts.FirstAsync(a => a.Id == accountId);
+        var balance = MoneyCalculator.CalculateAccountBalance(account.OpeningBalance, accountId, []);
+        Assert.Equal(2_000m, balance);
+    }
+
+    [Theory]
+    [InlineData("MariBank", "Cash")]
+    [InlineData("MariBank", "GCash")]
+    [InlineData("BPI", "MariBank")]
+    [InlineData("GCash", "Cash")]
+    [InlineData("Cash", "BPI")]
+    public async Task PushAsync_SupportsTransferBetweenAnyTwoAccounts(string sourceName, string destinationName)
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var source = Guid.NewGuid();
+        var destination = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [AccountPush(source, clock.UtcNow, name: sourceName, openingBalance: 8_000m), AccountPush(destination, clock.UtcNow, name: destinationName, openingBalance: 1_000m)],
+        });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), source, type: "Transfer", amount: 2_000m, category: null, destinationAccountId: destination)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var transactions = await db.Transactions.ToListAsync();
+        Assert.Equal(6_000m, MoneyCalculator.CalculateAccountBalance(8_000m, source, transactions));
+        Assert.Equal(3_000m, MoneyCalculator.CalculateAccountBalance(1_000m, destination, transactions));
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsTransferBetweenAccountsOfDifferentCurrencies()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var phpAccount = Guid.NewGuid();
+        var usdAccount = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [AccountPush(phpAccount, clock.UtcNow, name: "BPI", currency: "PHP"), AccountPush(usdAccount, clock.UtcNow, name: "USD Savings", currency: "USD")],
+        });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), phpAccount, type: "Transfer", amount: 100m, category: null, destinationAccountId: usdAccount)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_AllowsATransferExceedingTheSourceBalance_OverdraftIsCurrentlyPermitted()
+    {
+        // No business rule anywhere in this app currently blocks a negative account balance
+        // (an Expense can drive one negative too) — a Transfer follows the same, existing,
+        // permissive rule rather than introducing an asymmetric restriction just for itself.
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var source = Guid.NewGuid();
+        var destination = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [AccountPush(source, clock.UtcNow, name: "Cash", openingBalance: 100m), AccountPush(destination, clock.UtcNow, name: "BPI", openingBalance: 0m)],
+        });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), source, type: "Transfer", amount: 500m, category: null, destinationAccountId: destination)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var transactions = await db.Transactions.ToListAsync();
+        Assert.Equal(-400m, MoneyCalculator.CalculateAccountBalance(100m, source, transactions));
     }
 }

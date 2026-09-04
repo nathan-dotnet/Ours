@@ -2,12 +2,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { AccountForm } from '@/components/AccountForm';
+import { BrandLogo } from '@/components/BrandLogo';
+import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
-import { useAccount, useUpdateAccount } from '@/hooks/useAccounts';
+import { useAccount, useActiveAccounts, useUpdateAccount } from '@/hooks/useAccounts';
+import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForAccount } from '@/hooks/useTransactions';
 import { useAuthStore } from '@/stores/authStore';
-import { getAccountBrand } from '@/utils/accountBrand';
 import { calculateAccountBalance } from '@/utils/moneyCalculations';
+import { describeTransaction } from '@/utils/moneyActivity';
 import { centsToAmountInput, formatMoney } from '@/utils/money';
 import type { AccountFormValues } from '@/validation/account';
 
@@ -15,7 +18,9 @@ export default function AccountDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const user = useAuthStore((s) => s.session?.user);
+  const { data: coupleData } = useLocalCouple();
   const { data: account, isLoading } = useAccount(id);
+  const { data: allAccounts } = useActiveAccounts(coupleData?.couple.id);
   const { data: transactions } = useTransactionsForAccount(id);
   const updateAccount = useUpdateAccount();
   const [isEditing, setIsEditing] = useState(false);
@@ -94,14 +99,14 @@ export default function AccountDetailScreen() {
   }
 
   const balanceCents = calculateAccountBalance(account.opening_balance_cents, account.id, transactions ?? []);
-  const brand = getAccountBrand(account.icon, account.type);
   const history = (transactions ?? []).slice(0, 20);
 
   return (
     <Screen scroll>
       <View className="items-center gap-2 py-4">
-        <Text className="text-3xl">{brand.emoji}</Text>
+        <BrandLogo icon={account.icon} accountType={account.type} size={56} />
         <Text className="text-2xl font-semibold text-ink">{account.name}</Text>
+        <Text className="text-sm text-clay">Current Balance</Text>
         <Text className="text-3xl font-semibold text-ink">{formatMoney(balanceCents, account.currency)}</Text>
         <Text className="text-sm text-clay">
           {account.type} · {account.currency}
@@ -109,25 +114,25 @@ export default function AccountDetailScreen() {
         </Text>
       </View>
 
-      <View className="flex-row gap-3 pb-4">
-        <Pressable onPress={() => setIsEditing(true)} className="flex-1 items-center rounded-2xl bg-blush px-5 py-4">
-          <Text className="text-base font-semibold text-rose">Edit Account</Text>
-        </Pressable>
-        {account.is_active ? (
-          <Pressable onPress={onDeactivate} className="flex-1 items-center rounded-2xl bg-blush px-5 py-4">
-            <Text className="text-base font-semibold text-rose">Deactivate</Text>
-          </Pressable>
-        ) : null}
+      <View className="gap-3 pb-4">
+        <View className="flex-row gap-3">
+          <Button label="Transfer Money" variant="secondary" onPress={() => router.push(`/transactions/new?type=Transfer&accountId=${account.id}`)} />
+          <Button label="Add Expense" variant="secondary" onPress={() => router.push(`/transactions/new?type=Expense&accountId=${account.id}`)} />
+        </View>
+        <View className="flex-row gap-3">
+          <Button label="Add Income" variant="secondary" onPress={() => router.push(`/transactions/new?type=Income&accountId=${account.id}`)} />
+          <Button label="Edit Account" variant="secondary" onPress={() => setIsEditing(true)} />
+        </View>
+        {account.is_active ? <Button label="Deactivate Account" variant="secondary" onPress={onDeactivate} /> : null}
       </View>
 
-      <Text className="pb-2 text-sm font-semibold text-clay">Recent</Text>
+      <Text className="pb-2 text-sm font-semibold text-clay">Transactions</Text>
       {history.length === 0 ? (
         <Text className="text-clay">No transactions on this account yet.</Text>
       ) : (
         <View className="gap-2">
           {history.map((transaction) => {
-            const isTransfer = transaction.type === 'Transfer';
-            const isOutgoing = transaction.type === 'Expense' || (isTransfer && transaction.account_id === account.id);
+            const description = describeTransaction(transaction, allAccounts ?? [], account.id);
             return (
               <Pressable
                 key={transaction.id}
@@ -135,10 +140,10 @@ export default function AccountDetailScreen() {
                 className="flex-row items-center justify-between rounded-2xl bg-blush p-4"
               >
                 <Text className="flex-1 text-base font-semibold text-ink" numberOfLines={1}>
-                  {transaction.description || transaction.category || transaction.type}
+                  {description.icon} {description.title}
                 </Text>
                 <Text className="text-base font-semibold text-ink">
-                  {isOutgoing ? '-' : '+'}
+                  {description.amountText}
                   {formatMoney(transaction.amount_cents, transaction.currency)}
                 </Text>
               </Pressable>

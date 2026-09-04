@@ -34,6 +34,17 @@ describe('accountRepository', () => {
     expect(account).not.toHaveProperty('transactionId');
   });
 
+  it('supports an unlimited number of accounts for one couple — no artificial cap anywhere in the repository', async () => {
+    const names = ['BPI', 'GCash', 'MariBank', 'Cash', 'BDO', 'Maya', 'UnionBank', 'CIMB', 'Emergency Fund'];
+    for (const name of names) {
+      await accountRepository.createLocally(COUPLE_ID, input({ name }), 0, USER_ID);
+    }
+
+    const accounts = await accountRepository.getAllForCouple(COUPLE_ID);
+
+    expect(accounts).toHaveLength(names.length);
+  });
+
   it('getAllForCouple returns only that couple\'s non-deleted accounts', async () => {
     const mine = await accountRepository.createLocally(COUPLE_ID, input(), 0, USER_ID);
     await accountRepository.createLocally('some-other-couple', input({ name: 'Not mine' }), 0, USER_ID);

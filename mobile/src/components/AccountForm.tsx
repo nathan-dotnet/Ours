@@ -3,6 +3,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { Pressable, Text, View } from 'react-native';
 import { ACCOUNT_ICON_OPTIONS, getAccountBrand } from '../utils/accountBrand';
 import { ACCOUNT_TYPES, accountSchema, type AccountFormValues } from '../validation/account';
+import { BrandLogo } from './BrandLogo';
 import { Button } from './Button';
 import { TextField } from './TextField';
 
@@ -88,7 +89,7 @@ export function AccountForm({
                 onPress={() => setValue('icon', option)}
                 className={`flex-row items-center gap-1.5 rounded-full px-3 py-2 ${selected ? 'bg-rose' : 'bg-blush'}`}
               >
-                <Text>{brand.emoji}</Text>
+                <BrandLogo icon={option} accountType={type} size={20} />
                 <Text className={`text-xs font-medium ${selected ? 'text-cream' : 'text-clay'}`}>{brand.label}</Text>
               </Pressable>
             );

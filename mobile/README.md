@@ -119,10 +119,28 @@ progress) reads through instead of computing its own arithmetic:
 - `transaction_date`/budget `year`/`month` follow `anniversary_date`'s existing bare `YYYY-MM-DD`
   date-only convention (`utils/date.ts`'s `toLocalDateString`/`fromLocalDateString`, never
   `Date#toISOString()`, which reads the UTC date and can shift by a day).
-- **Account branding**: `utils/accountBrand.ts` is a small static local map (bank/e-wallet name ->
-  emoji + label) — never an external image URL or a fetched logo. An account's `icon` field is
-  just a lookup key into this map; an unrecognized one falls back to a generic icon by account
-  type instead of breaking the UI.
+- **Account branding**: `utils/accountBrand.ts` is a small static local map — never an external
+  image URL, a remote logo API, or a fetched asset. A known institution (BPI, GCash, MariBank,
+  Maya, BDO, UnionBank, Metrobank) renders as a colored wordmark badge (`BrandLogo.tsx`) in that
+  brand's real public color, entirely from bundled code; anything else (Cash, a custom account
+  name, an unrecognized icon) falls back to a plain emoji by account type. An account's `icon`
+  field is just a lookup key into this map — adding a new brand later is a one-line addition.
+- **Money dashboard hierarchy** (`app/(tabs)/money.tsx`): Budget first, then its "+ Add Budget" /
+  "+ Add Expense" actions, then Accounts, then Recent Transactions — deliberately not
+  account-balance-first, and with no generic "+ Add" button in the header (Money is a dashboard,
+  not a copy of Calendar's create-first layout). Accounts render in a 2-column grid
+  (`utils/accountGrid.ts`'s `getAccountGridView` — a pure, unit-tested function, not a hardcoded
+  2-account slice) collapsed to a 2-row preview with a fade cue once there are more; "See All
+  Accounts" only appears when it's true, and every card underneath the fade stays fully tappable
+  (the fade is `pointerEvents="none"`, purely visual).
+- **Recent Activity** (`utils/moneyActivity.ts`) merges Transactions with a derived
+  "account added" entry for each account — computed at read time from the account's own existing
+  `created_at`/`opening_balance_cents`, not a new stored/synced activity entity, and never a fake
+  Income/Expense transaction (creating an account has no financial effect of its own; see
+  `MoneyCalculator`/`moneyCalculations.ts`, which only ever reads real transactions). The same
+  module's `describeTransaction()` gives a transfer exactly one canonical rendering — "Transfer to
+  X" from its source's perspective in the couple-wide feed, or ↗ outgoing / ↙ incoming when shown
+  on one of the two accounts' own detail page — never two feed rows for one transfer.
 - Leaving a couple's cleanup (`removeLocalCoupleAndData`) removes a couple's accounts,
   transactions, and budgets the same way it already removed calendar events — see below.
 
@@ -191,3 +209,15 @@ leaver's own device and the partner's, rather than two.
   browsing is wanted later.
 - Budgets can only be created for the current month from the UI (the data model itself supports
   any year/month — see Budget.Year/Month — this is a UI simplification, not a model limitation).
+- The dashboard no longer shows a "Total Balance" summary card — the revised layout leads with
+  Budget, matching every mockup in the UI-update spec. Re-add it (`calculateTotalBalance` is still
+  exported from `moneyCalculations.ts`, untouched) if that was meant to stay.
+- A transfer (or an expense) that would take an account negative is currently allowed — there is
+  no overdraft-prevention rule anywhere in the app today, and a transfer deliberately follows that
+  same existing, permissive behavior rather than introducing an asymmetric restriction just for
+  itself. Flag if overdraft should actually be blocked; it would need a rule for expenses too, not
+  just transfers, to stay consistent.
+- Real bank/e-wallet logos are rendered as colored wordmark badges (`BrandLogo.tsx`), not the
+  institutions' actual trademarked artwork — bundling or fetching real logo image files was out of
+  scope ("no external image URLs", "no remote logo API"); this is the closest static, local,
+  license-safe equivalent. Swap in real bundled image assets later if that's wanted instead.

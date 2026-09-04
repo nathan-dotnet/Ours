@@ -50,6 +50,12 @@ describe('transferTransactionSchema', () => {
     expect(transferTransactionSchema.safeParse(values()).success).toBe(true);
   });
 
+  it('accepts any pair of accounts — the destination is never restricted to a specific account like Cash', () => {
+    expect(transferTransactionSchema.safeParse(values({ accountId: 'maribank', destinationAccountId: 'gcash' })).success).toBe(true);
+    expect(transferTransactionSchema.safeParse(values({ accountId: 'bpi', destinationAccountId: 'maribank' })).success).toBe(true);
+    expect(transferTransactionSchema.safeParse(values({ accountId: 'gcash', destinationAccountId: 'cash' })).success).toBe(true);
+  });
+
   it('rejects a transfer to the same account', () => {
     const result = transferTransactionSchema.safeParse(values({ accountId: 'bpi', destinationAccountId: 'bpi' }));
     expect(result.success).toBe(false);

@@ -1,26 +1,30 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Account } from '../types/entities';
-import { getAccountBrand } from '../utils/accountBrand';
+import { BrandLogo } from './BrandLogo';
 import { formatMoney } from '../utils/money';
 
 interface AccountCardProps {
   account: Account;
   balanceCents: number;
   onPress: () => void;
+  /** Fills its row in a grid (see the Money dashboard's 2-column layout) instead of a fixed width for a horizontal scroller. */
+  fill?: boolean;
 }
 
-/** A visual card (not a plain row) for one account — logo/icon, name, balance, type. See Phase 3 spec's "Account Card UI". */
-export function AccountCard({ account, balanceCents, onPress }: AccountCardProps) {
-  const brand = getAccountBrand(account.icon, account.type);
-
+/** A visual card (not a plain row) for one account — logo/icon, name, balance, type. */
+export function AccountCard({ account, balanceCents, onPress, fill = false }: AccountCardProps) {
   return (
-    <Pressable onPress={onPress} className="w-44 gap-2 rounded-2xl bg-blush p-4">
-      <Text className="text-2xl">{brand.emoji}</Text>
-      <Text className="text-base font-semibold text-ink" numberOfLines={1}>
-        {account.name}
-      </Text>
-      <Text className="text-lg font-semibold text-ink">{formatMoney(balanceCents, account.currency)}</Text>
-      <Text className="text-xs text-clay">{account.type}</Text>
+    <Pressable onPress={onPress} className={`${fill ? 'flex-1' : 'w-44'} h-36 justify-between gap-1.5 rounded-2xl bg-blush p-4`}>
+      <BrandLogo icon={account.icon} accountType={account.type} size={36} />
+      <View className="gap-0.5">
+        <Text className="text-base font-semibold text-ink" numberOfLines={1}>
+          {account.name}
+        </Text>
+        <Text className="text-lg font-semibold text-ink" numberOfLines={1}>
+          {formatMoney(balanceCents, account.currency)}
+        </Text>
+        <Text className="text-xs text-clay">{account.type}</Text>
+      </View>
     </Pressable>
   );
 }
