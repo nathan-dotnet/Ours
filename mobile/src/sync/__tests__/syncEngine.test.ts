@@ -1,7 +1,9 @@
 import { resetDatabaseHandleForTests } from '../../database/db';
+import { accountRepository } from '../../repositories/accountRepository';
+import { budgetRepository } from '../../repositories/budgetRepository';
 import { calendarEventRepository } from '../../repositories/calendarEventRepository';
 import { coupleRepository } from '../../repositories/coupleRepository';
-import { expenseRepository } from '../../repositories/expenseRepository';
+import { transactionRepository } from '../../repositories/transactionRepository';
 import { useAuthStore } from '../../stores/authStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { runSync } from '../syncEngine';
@@ -135,28 +137,61 @@ describe('runSync', () => {
     expect(useAuthStore.getState().session?.user.coupleId).toBeNull();
   });
 
-  it('applies a pulled expense change to SQLite, converting the decimal payload to exact cents', async () => {
+  it('applies a pulled account change to SQLite, converting the decimal opening balance to exact cents', async () => {
     const coupleId = 'couple-1';
     await useAuthStore.getState().setSession({
       ...sessionWithoutCouple,
       user: { ...sessionWithoutCouple.user, coupleId },
     } as never);
 
-    const expenseId = 'expense-1';
+    const accountId = 'account-1';
     global.fetch = jest.fn().mockResolvedValue(
       jsonResponse({
         serverTime: '2026-01-01T00:00:00.000Z',
         changes: [
           {
-            entityType: 'expense',
-            entityId: expenseId,
+            entityType: 'account',
+            entityId: accountId,
+            operation: 'UPDATE',
+            payload: { name: 'BPI', type: 'Bank', icon: 'bpi', openingBalance: 1250.5, currency: 'PHP', isActive: true },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-bob',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    const stored = await accountRepository.getById(accountId);
+    expect(stored).toMatchObject({ opening_balance_cents: 125050, couple_id: coupleId, name: 'BPI' });
+  });
+
+  it('applies a pulled money_transaction change to SQLite, converting the decimal payload to exact cents', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+
+    const transactionId = 'tx-1';
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'money_transaction',
+            entityId: transactionId,
             operation: 'UPDATE',
             payload: {
+              type: 'Expense',
               amount: 1250.5,
               currency: 'PHP',
-              description: 'Groceries',
+              accountId: 'account-1',
               category: 'Food',
-              expenseDate: '2026-01-15',
+              description: 'Groceries',
+              transactionDate: '2026-01-15',
               notes: null,
               createdByUserId: 'user-bob',
             },
@@ -170,11 +205,11 @@ describe('runSync', () => {
 
     await runSync();
 
-    const stored = await expenseRepository.getById(expenseId);
+    const stored = await transactionRepository.getById(transactionId);
     expect(stored).toMatchObject({ amount_cents: 125050, couple_id: coupleId, created_by_user_id: 'user-bob' });
   });
 
-  it('an expense change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {
+  it('a money_transaction change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {
     const coupleId = 'couple-1';
     await useAuthStore.getState().setSession({
       ...sessionWithoutCouple,
@@ -190,7 +225,7 @@ describe('runSync', () => {
       version: 1,
       members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
     });
-    const expenseId = 'expense-1';
+    const transactionId = 'tx-1';
 
     global.fetch = jest.fn().mockResolvedValue(
       jsonResponse({
@@ -206,15 +241,17 @@ describe('runSync', () => {
             version: 2,
           },
           {
-            entityType: 'expense',
-            entityId: expenseId,
+            entityType: 'money_transaction',
+            entityId: transactionId,
             operation: 'UPDATE',
             payload: {
+              type: 'Expense',
               amount: 100,
               currency: 'PHP',
-              description: 'Should not be resurrected',
+              accountId: 'account-1',
               category: 'Other',
-              expenseDate: '2026-01-15',
+              description: 'Should not be resurrected',
+              transactionDate: '2026-01-15',
               notes: null,
               createdByUserId: 'user-1',
             },
@@ -228,7 +265,56 @@ describe('runSync', () => {
 
     await runSync();
 
-    expect(await expenseRepository.getById(expenseId)).toBeNull();
+    expect(await transactionRepository.getById(transactionId)).toBeNull();
+  });
+
+  it('a budget change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+    await coupleRepository.upsertFromServer({
+      id: coupleId,
+      inviteCode: 'OURS-TEST',
+      nickname: null,
+      anniversaryDate: null,
+      updatedAt: '2025-12-01T00:00:00.000Z',
+      updatedByUserId: 'user-1',
+      version: 1,
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+    });
+    const budgetId = 'budget-1';
+
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'couple_profile',
+            entityId: coupleId,
+            operation: 'DELETE',
+            payload: null,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-2',
+            version: 2,
+          },
+          {
+            entityType: 'budget',
+            entityId: budgetId,
+            operation: 'UPDATE',
+            payload: { category: 'Food', year: 2026, month: 1, amount: 5000, currency: 'PHP' },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-1',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    expect(await budgetRepository.getById(budgetId)).toBeNull();
   });
 
   it('a calendar_event change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {

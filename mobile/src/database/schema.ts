@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -114,4 +114,81 @@ export const MIGRATION_V4 = `
 
   CREATE INDEX IF NOT EXISTS idx_expenses_couple_id ON expenses (couple_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_couple_id_expense_date ON expenses (couple_id, expense_date);
+`;
+
+/**
+ * Statements applied when moving from schema version 4 -> 5: replaces the Phase 3A
+ * Expenses-only table with the full Money System (Phase 3) — Accounts, Transactions, Budgets.
+ * `expenses` is dropped outright (see backend's matching ReplaceExpensesWithMoneySystem
+ * migration) rather than kept alongside the new tables — the old design is fully superseded,
+ * not extended. All money amounts are INTEGER minor units ("cents"), never REAL — see
+ * utils/money.ts and utils/moneyCalculations.ts for why float is never used for money anywhere
+ * in this app.
+ */
+export const MIGRATION_V5 = `
+  DROP TABLE IF EXISTS expenses;
+
+  CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    opening_balance_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_accounts_couple_id ON accounts (couple_id);
+  CREATE INDEX IF NOT EXISTS idx_accounts_couple_id_is_active ON accounts (couple_id, is_active);
+
+  CREATE TABLE IF NOT EXISTS money_transactions (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    destination_account_id TEXT,
+    category TEXT,
+    description TEXT,
+    transaction_date TEXT NOT NULL,
+    notes TEXT,
+    paid_by_user_id TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_couple_id ON money_transactions (couple_id);
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_couple_id_date ON money_transactions (couple_id, transaction_date);
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_account_id ON money_transactions (account_id);
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_destination_account_id ON money_transactions (destination_account_id);
+
+  CREATE TABLE IF NOT EXISTS budgets (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_budgets_couple_id_year_month ON budgets (couple_id, year, month);
 `;

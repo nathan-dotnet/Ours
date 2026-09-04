@@ -67,24 +67,50 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
 
 - **Sync**: `SyncService` (Application/Services) is the one place that knows about synced entity
   types: `"couple_profile"` (Phase 1, a stand-in that exists purely to exercise the offline round
-  trip), `"calendar_event"` (Phase 2), and `"expense"` (Phase 3A). Adding a new synced feature
-  means adding a case to `PullAsync` and `PushAsync`, not a new controller or a parallel sync
-  mechanism. `CalendarEvent` is also the first entity where the server itself creates a row
-  (rather than only ever updating one that already exists) — see `ApplyCalendarEventChangeAsync`
-  for how create-vs-update is decided by whether the id already exists server-side, not by
-  trusting the client's stated operation, which makes retried pushes naturally idempotent.
+  trip), `"calendar_event"` (Phase 2), and the Money System's `"account"`, `"money_transaction"`,
+  and `"budget"` (Phase 3). Adding a new synced feature means adding a case to `PullAsync` and
+  `PushAsync`, not a new controller or a parallel sync mechanism. `CalendarEvent` was the first
+  entity where the server itself creates a row (rather than only ever updating one that already
+  exists) — see `ApplyCalendarEventChangeAsync` for how create-vs-update is decided by whether the
+  id already exists server-side, not by trusting the client's stated operation, which makes a
+  retried push naturally idempotent; every Money entity follows the same shape.
   `CalendarEvent.AllDay`/`Location` were added later, additively (their own migration) — a plain
   boolean and nullable string on the entity/payload, no special-cased sync handling; the client
   is what treats an all-day event's Start/EndAt (still real UTC instants) as spanning a whole day.
-- **Money (`Expense`)**: `Amount` is `decimal`/Postgres `numeric(18,2)` — never `float`/`double` —
-  so it round-trips exactly through JSON (System.Text.Json's decimal converter parses/serializes
-  the digits directly, no floating-point step at all). `Category` is a small controlled set
-  (`ExpenseCategory`, string constants — same pattern as `SyncOperation`) validated server-side;
-  `Currency` is only shape-checked (3 uppercase letters), not restricted to a fixed list, so
-  adding a second currency later needs no data-model change. `ExpenseDate` is `DateOnly` (no
-  time-of-day/timezone component), deliberately separate from `CreatedAt` so a user can log an
-  expense after the fact. The optional `PaidByUserId` is validated against `CoupleMembers` (must
-  be an active — `LeftAt IS NULL` — member of the caller's own couple) rather than trusted as-is.
+- **Money System** (`Account`, `Transaction`, `Budget` — replaces the Phase 3A Expense-only
+  design entirely, not alongside it): every amount is `decimal`/Postgres `numeric(18,2)`, never
+  `float`/`double`, so it round-trips exactly through JSON (System.Text.Json's decimal converter
+  parses/serializes the digits directly, no floating-point step at all).
+  - `Account` has **no stored current-balance column at all** — see `MoneyCalculator`
+    (Application/Services), the one place balance/spending arithmetic happens, on both this end
+    and the mobile equivalent (`utils/moneyCalculations.ts`). Balance is always `OpeningBalance`
+    plus every non-deleted `Transaction` touching the account, recomputed fresh every time —
+    which is also why an edited or deleted transaction needs no explicit "reverse the old effect"
+    step anywhere; recomputing from current data is automatically correct.
+    `OpeningBalance` is accepted from the payload only on first CREATE; an UPDATE can never move
+    it (only Name/Type/Icon/Currency/IsActive are editable) — the only way an account's balance
+    can change afterward is by recording a `Transaction`. `Account` also rejects the DELETE
+    operation outright — deactivate (`IsActive = false`) instead, since a partner's historical
+    transactions may still reference it.
+  - `Transaction.Type` is `Expense`, `Income`, or `Transfer` — a Transfer is not an Expense with a
+    special category; it moves money between the couple's own two accounts and is validated to
+    never count as spending (`MoneyCalculator.CalculateMonthlySpending`/`CategorySpending` only
+    ever look at `Expense` rows). `Amount` is always stored positive; direction is implied by
+    `Type` plus which of `AccountId`/`DestinationAccountId` it touches. `TransactionCategory`
+    validates separate Expense/Income vocabularies (a Transfer must have none at all), and a
+    transfer's source/destination must both belong to the caller's couple and share one currency
+    (no conversion in this MVP).
+  - `Budget` is a monthly per-category spending plan, informational only — nothing stops a couple
+    from spending past it. A filtered unique index (`IsDeleted = false`, mirroring
+    `CoupleMember.LeftAt`'s pattern) plus an application-level pre-check enforce at most one
+    active budget per couple+year+month+category; a deleted budget's slot is immediately reusable.
+  - `Currency` (on `Account`, `Transaction`, and `Budget`) is only shape-checked (3 uppercase
+    letters), not restricted to a fixed list, so adding a second real currency later needs no
+    data-model change. `TransactionDate` is `DateOnly` (no time-of-day/timezone component),
+    deliberately separate from `CreatedAt` so a user can log a transaction after the fact.
+  - `PaidByUserId` (on `Transaction`, optional) is validated against `CoupleMembers` (must be an
+    active — `LeftAt IS NULL` — member of the caller's own couple) rather than trusted as-is —
+    same rule the Phase 3A `Expense.PaidByUserId` used before it.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.

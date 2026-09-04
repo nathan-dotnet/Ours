@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { CURRENT_SCHEMA_VERSION, MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4 } from './schema';
+import { CURRENT_SCHEMA_VERSION, MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5 } from './schema';
 
 /**
  * Applies pending schema migrations in order, tracked via SQLite's built-in `user_version`
@@ -32,6 +32,11 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   if (version < 4) {
     await db.execAsync(MIGRATION_V4);
     version = 4;
+  }
+
+  if (version < 5) {
+    await db.execAsync(MIGRATION_V5);
+    version = 5;
   }
 
   await db.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

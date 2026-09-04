@@ -65,21 +65,44 @@ export interface CalendarEventPayload {
 }
 
 /**
- * Shape of the "expense" sync payload — mirrors the backend's ExpensePayloadDto. `amount` is a
- * plain decimal JSON number on the wire (exact on the backend, which parses/serializes it as
- * `decimal` directly); see utils/money.ts for how the mobile side converts it to/from integer
- * cents without ever going through a lossy floating-point sum.
+ * Shape of the "account" sync payload — mirrors the backend's AccountPayloadDto.
+ * `openingBalance` is a plain decimal JSON number, like every money amount on the wire (exact on
+ * the backend; see utils/money.ts for the mobile-side integer-cents conversion). Only ever
+ * applied on first CREATE — an UPDATE payload still carries it, but the repository/backend both
+ * ignore it thereafter; see accountRepository.ts.
  */
-export interface ExpensePayload {
+export interface AccountPayload {
+  name: string;
+  type: string;
+  icon: string;
+  openingBalance: number;
+  currency: string;
+  isActive: boolean;
+}
+
+/** Shape of the "money_transaction" sync payload — mirrors the backend's TransactionPayloadDto. */
+export interface TransactionPayload {
+  type: string; // 'Expense' | 'Income' | 'Transfer'
   amount: number;
   currency: string;
+  accountId: string;
+  destinationAccountId?: string | null;
+  category?: string | null;
   description: string | null;
-  category: string;
-  expenseDate: string; // ISO date (YYYY-MM-DD)
+  transactionDate: string; // ISO date (YYYY-MM-DD)
   notes: string | null;
   paidByUserId?: string | null;
   /** Only ever present on a pulled change — the server sets it, a push never needs to. */
   createdByUserId?: string;
+}
+
+/** Shape of the "budget" sync payload — mirrors the backend's BudgetPayloadDto. */
+export interface BudgetPayload {
+  category: string;
+  year: number;
+  month: number;
+  amount: number;
+  currency: string;
 }
 
 export type SyncOperationDto = 'CREATE' | 'UPDATE' | 'DELETE';

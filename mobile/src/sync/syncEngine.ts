@@ -1,10 +1,12 @@
+import { accountRepository, ACCOUNT_ENTITY_TYPE } from '../repositories/accountRepository';
+import { budgetRepository, BUDGET_ENTITY_TYPE } from '../repositories/budgetRepository';
 import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
-import { expenseRepository, EXPENSE_ENTITY_TYPE } from '../repositories/expenseRepository';
+import { transactionRepository, TRANSACTION_ENTITY_TYPE } from '../repositories/transactionRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
-import type { CalendarEventPayload, CoupleProfilePayload, ExpensePayload } from '../types/api';
+import type { AccountPayload, BudgetPayload, CalendarEventPayload, CoupleProfilePayload, TransactionPayload } from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from './syncQueue';
@@ -100,19 +102,41 @@ async function pullRemote(): Promise<void> {
         change.updatedByUserId,
         change.version,
       );
-    } else if (change.entityType === EXPENSE_ENTITY_TYPE) {
+    } else if (change.entityType === ACCOUNT_ENTITY_TYPE) {
       if (coupleJustEnded) continue;
-      await expenseRepository.applyRemoteChange(
+      // Accounts are never deleted server-side (see SyncService.ApplyAccountChangeAsync) — the
+      // payload is always present, unlike every other tombstone-capable entity type here.
+      await accountRepository.applyRemoteChange(
         coupleId,
         change.entityId,
-        change.payload as ExpensePayload | null,
+        change.payload as AccountPayload,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === TRANSACTION_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await transactionRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as TransactionPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === BUDGET_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await budgetRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as BudgetPayload | null,
         change.updatedAt,
         change.updatedByUserId,
         change.version,
       );
     }
     // Future entity types add another branch here — and the `if (coupleJustEnded) continue;`
-    // guard, if they're couple-scoped the same way calendar events/expenses are.
+    // guard, if they're couple-scoped the same way calendar events/Money entities are.
   }
 
   await setLastSyncedAt(response.serverTime);

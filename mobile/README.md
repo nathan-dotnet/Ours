@@ -10,10 +10,13 @@ app/                      Expo Router routes
   (onboarding)/           create-couple, join-couple (online-only, like leaving one — see below)
   (tabs)/                 Home, Calendar, Money, Settings — the main app
   calendar/               new / [id] — create + edit event modals
-  expenses/                new / [id] — create + edit expense modals
+  accounts/                new / [id] — create account + account detail/edit/deactivate
+  transactions/            new / [id] — add (Expense/Income/Transfer) + edit/delete
+  budgets/                 new / [id] — create + edit/delete a monthly category budget
 src/
   database/                SQLite open + migrations (schema.ts, migrations.ts, db.ts)
-  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts, expenseRepository.ts)
+  repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts,
+                           accountRepository.ts, transactionRepository.ts, budgetRepository.ts)
   sync/                    sync_queue repository + push/pull engine, reused by every feature
   services/                API client (with auto token-refresh), connectivity (NetInfo), biometricAuth.ts
   stores/                  Zustand: auth session (+ biometric gate), sync status
@@ -90,17 +93,38 @@ an event list scoped to whichever day is selected. An event can be marked all-da
 it's ever converted to an ISO timestamp — converting through UTC first, or storing a bare date,
 is what would let the day silently shift depending on the device's timezone offset.
 
-Money (Phase 3A) adds `expenseRepository.ts` on the exact same pattern, with one extra rule:
-`amount_cents` is stored as a SQLite `INTEGER` (never `REAL`), and every total (monthly total,
-category breakdown, in `useExpenseTotals`) is computed by summing plain integers — see
-`utils/money.ts`. The wire payload is still a decimal JSON number matching the backend's
-`decimal`; `apiAmountToCents`/`centsToApiAmount` are the only two places a float briefly exists,
-and both use a `toFixed`-then-parse/round trick specifically so a value like `100.10 + 0.20` is
-never serialized as `100.30000000000001`. `ExpenseDate` follows `anniversary_date`'s existing
-bare `YYYY-MM-DD` convention (`utils/date.ts`'s `toLocalDateString`/`fromLocalDateString`, never
-`Date#toISOString()`, which reads the UTC date and can shift by a day). Leaving a couple's cleanup
-(`removeLocalCoupleAndData`) removes a couple's expenses the same way it already removed calendar
-events — see below.
+**The Money System (Phase 3)** replaces the Phase 3A Expenses-only design entirely — `expenses`
+is dropped by the schema v5 migration, not kept alongside the new tables. Three repositories
+(`accountRepository.ts`, `transactionRepository.ts`, `budgetRepository.ts`) follow the same
+established shape, plus a shared calculation layer, `utils/moneyCalculations.ts` — the mobile
+mirror of the backend's `MoneyCalculator` — that every screen (dashboard, account detail, budget
+progress) reads through instead of computing its own arithmetic:
+
+- **Money precision**: `amount_cents`/`opening_balance_cents` are stored as SQLite `INTEGER`,
+  never `REAL`, and every total is plain integer addition (`utils/money.ts`'s `sumCents`, and
+  `moneyCalculations.ts` built on the same convention). The wire payload is still a decimal JSON
+  number matching the backend's `decimal`; `apiAmountToCents`/`centsToApiAmount` are the only two
+  places a float briefly exists, using a `toFixed`-then-parse/round trick specifically so a value
+  like `100.10 + 0.20` is never serialized as `100.30000000000001`.
+- **Account balance**: there is no stored "current balance" column locally either — every balance
+  is `opening_balance_cents` plus every non-deleted transaction touching that account, recomputed
+  fresh by `calculateAccountBalance()` every time. That's also why editing or deleting a
+  transaction needs no explicit "undo" step in the repository: `updateLocally` just writes the
+  transaction's new state, and the next balance read is automatically correct.
+- **Transfers**: `transactionRepository`'s `Type` field is `'Expense' | 'Income' | 'Transfer'` —
+  a transfer is one row with both an `account_id` (source) and `destination_account_id`, never two
+  separate transactions that could desync if only one half synced. `calculateMonthlySpending`/
+  `calculateCategorySpending` only ever look at `Expense` rows, so a transfer never counts as
+  spending or against a budget.
+- `transaction_date`/budget `year`/`month` follow `anniversary_date`'s existing bare `YYYY-MM-DD`
+  date-only convention (`utils/date.ts`'s `toLocalDateString`/`fromLocalDateString`, never
+  `Date#toISOString()`, which reads the UTC date and can shift by a day).
+- **Account branding**: `utils/accountBrand.ts` is a small static local map (bank/e-wallet name ->
+  emoji + label) — never an external image URL or a fetched logo. An account's `icon` field is
+  just a lookup key into this map; an unrecognized one falls back to a generic icon by account
+  type instead of breaking the UI.
+- Leaving a couple's cleanup (`removeLocalCoupleAndData`) removes a couple's accounts,
+  transactions, and budgets the same way it already removed calendar events — see below.
 
 ## Authentication: password reset + biometric login
 
@@ -134,7 +158,7 @@ state, so the app never pretends a destructive cross-user change succeeded when 
 confirmed it.
 
 On a confirmed success, `coupleRepository.removeLocalCoupleAndData()` removes the couple, its
-membership rows, its calendar events, and its expenses — and discards any not-yet-synced `sync_queue` entry for
+membership rows, its calendar events, and its Money data (accounts, transactions, budgets) — and discards any not-yet-synced `sync_queue` entry for
 that data too, so a pending offline edit/create from before leaving can never get pushed under
 whatever couple this device joins next (the server derives a push's couple from the *current*
 token, not from whenever the change was queued). `authStore.clearCoupleId()` then patches the
@@ -162,3 +186,8 @@ leaver's own device and the partner's, rather than two.
 - No "Enable biometric login?" prompt after registration (only after a normal login) — the spec
   frames this as a first-*login* moment, and a brand-new account has nothing to protect yet since
   it goes straight to onboarding.
+- The Money dashboard always shows the current calendar month (no prev/next month navigation, unlike
+  Calendar's) — kept minimal per the Phase 3 spec's layout example; add if month-by-month history
+  browsing is wanted later.
+- Budgets can only be created for the current month from the UI (the data model itself supports
+  any year/month — see Budget.Year/Month — this is a UI simplification, not a model limitation).

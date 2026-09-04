@@ -105,10 +105,18 @@ export const coupleRepository = {
   async removeLocalCoupleAndData(coupleId: string): Promise<void> {
     const db = await getDatabase();
 
-    // Future couple-scoped local tables (beyond calendar_events/expenses) need a line here too.
+    // Future couple-scoped local tables need a line here too.
     const events = await db.getAllAsync<{ id: string }>(`SELECT id FROM calendar_events WHERE couple_id = ?`, [coupleId]);
-    const expenses = await db.getAllAsync<{ id: string }>(`SELECT id FROM expenses WHERE couple_id = ?`, [coupleId]);
-    const queuedEntityIds = [coupleId, ...events.map((e) => e.id), ...expenses.map((e) => e.id)];
+    const accounts = await db.getAllAsync<{ id: string }>(`SELECT id FROM accounts WHERE couple_id = ?`, [coupleId]);
+    const transactions = await db.getAllAsync<{ id: string }>(`SELECT id FROM money_transactions WHERE couple_id = ?`, [coupleId]);
+    const budgets = await db.getAllAsync<{ id: string }>(`SELECT id FROM budgets WHERE couple_id = ?`, [coupleId]);
+    const queuedEntityIds = [
+      coupleId,
+      ...events.map((e) => e.id),
+      ...accounts.map((a) => a.id),
+      ...transactions.map((t) => t.id),
+      ...budgets.map((b) => b.id),
+    ];
 
     await db.withTransactionAsync(async () => {
       for (const entityId of queuedEntityIds) {
@@ -117,7 +125,11 @@ export const coupleRepository = {
       await db.runAsync(`DELETE FROM couples WHERE id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM couple_members WHERE couple_id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM calendar_events WHERE couple_id = ?`, [coupleId]);
-      await db.runAsync(`DELETE FROM expenses WHERE couple_id = ?`, [coupleId]);
+      // Transactions before accounts — no FK enforcement in SQLite here, but it keeps the order
+      // logically "history first, then what it referenced", matching the backend's own ordering.
+      await db.runAsync(`DELETE FROM money_transactions WHERE couple_id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM accounts WHERE couple_id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM budgets WHERE couple_id = ?`, [coupleId]);
     });
   },
 
