@@ -4,7 +4,7 @@ using Ours.Application.Abstractions;
 using Ours.Application.Common;
 using Ours.Application.DTOs.Calendar;
 using Ours.Application.DTOs.Couples;
-using Ours.Application.DTOs.Expenses;
+using Ours.Application.DTOs.Money;
 using Ours.Application.DTOs.Sync;
 using Ours.Domain.Entities;
 
@@ -12,11 +12,11 @@ namespace Ours.Application.Services;
 
 /// <summary>
 /// Generic, entity-agnostic sync endpoint implementation. Phase 1 registered a handler for
-/// "couple_profile" purely to prove the offline round trip end-to-end; Phase 2 adds
-/// "calendar_event" (see <see cref="CalendarEventEntityType"/>) as the first real feature to
-/// use it. Future phases add a case per new entity type (e.g. "expense") to
-/// <see cref="PullAsync"/> and <see cref="PushAsync"/> rather than standing up a parallel sync
-/// mechanism.
+/// "couple_profile" purely to prove the offline round trip end-to-end; Phase 2 added
+/// "calendar_event"; Phase 3 adds the Money System's three entities — "account",
+/// "money_transaction", and "budget" — the same way. Adding a new synced feature means adding a
+/// case per entity type to <see cref="PullAsync"/> and <see cref="PushAsync"/>, not a new
+/// controller or a parallel sync mechanism.
 /// </summary>
 public class SyncService(
     IApplicationDbContext db,
@@ -25,10 +25,12 @@ public class SyncService(
 {
     public const string CoupleProfileEntityType = "couple_profile";
     public const string CalendarEventEntityType = "calendar_event";
-    public const string ExpenseEntityType = "expense";
+    public const string AccountEntityType = "account";
+    public const string TransactionEntityType = "money_transaction";
+    public const string BudgetEntityType = "budget";
 
-    /// <summary>Application-level sanity ceiling — independent of the numeric(18,2) column's actual headroom — rejecting an obviously-mistyped amount (e.g. an extra zero) rather than silently accepting it.</summary>
-    private const decimal MaxExpenseAmount = 10_000_000m;
+    /// <summary>Application-level sanity ceiling — independent of any column's actual numeric(18,2) headroom — rejecting an obviously-mistyped amount (e.g. an extra zero) rather than silently accepting it. Shared by every money amount: Transaction.Amount, Account.OpeningBalance, Budget.Amount.</summary>
+    private const decimal MaxMoneyAmount = 10_000_000m;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -80,30 +82,83 @@ public class SyncService(
             });
         }
 
-        var expenses = await db.Expenses
-            .Where(e => e.CoupleId == coupleId && (since == null || e.UpdatedAt > since))
+        var accounts = await db.Accounts
+            .Where(a => a.CoupleId == coupleId && (since == null || a.UpdatedAt > since))
             .ToListAsync(ct);
-        foreach (var expense in expenses)
+        foreach (var account in accounts)
+        {
+            // Accounts are never deleted (see ApplyAccountChangeAsync) — always an upsert.
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = AccountEntityType,
+                EntityId = account.Id,
+                Operation = SyncOperation.Update,
+                Payload = new AccountPayloadDto
+                {
+                    Name = account.Name,
+                    Type = account.Type,
+                    Icon = account.Icon,
+                    OpeningBalance = account.OpeningBalance,
+                    Currency = account.Currency,
+                    IsActive = account.IsActive,
+                },
+                UpdatedAt = account.UpdatedAt,
+                UpdatedByUserId = account.UpdatedByUserId,
+                Version = account.Version,
+            });
+        }
+
+        var transactions = await db.Transactions
+            .Where(t => t.CoupleId == coupleId && (since == null || t.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var transaction in transactions)
         {
             changes.Add(new SyncChangeDto
             {
-                EntityType = ExpenseEntityType,
-                EntityId = expense.Id,
-                Operation = expense.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
-                Payload = expense.IsDeleted ? null : new ExpensePayloadDto
+                EntityType = TransactionEntityType,
+                EntityId = transaction.Id,
+                Operation = transaction.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = transaction.IsDeleted ? null : new TransactionPayloadDto
                 {
-                    Amount = expense.Amount,
-                    Currency = expense.Currency,
-                    Description = expense.Description,
-                    Category = expense.Category,
-                    ExpenseDate = expense.ExpenseDate,
-                    Notes = expense.Notes,
-                    PaidByUserId = expense.PaidByUserId,
-                    CreatedByUserId = expense.CreatedByUserId,
+                    Type = transaction.Type,
+                    Amount = transaction.Amount,
+                    Currency = transaction.Currency,
+                    AccountId = transaction.AccountId,
+                    DestinationAccountId = transaction.DestinationAccountId,
+                    Category = transaction.Category,
+                    Description = transaction.Description,
+                    TransactionDate = transaction.TransactionDate,
+                    Notes = transaction.Notes,
+                    PaidByUserId = transaction.PaidByUserId,
+                    CreatedByUserId = transaction.CreatedByUserId,
                 },
-                UpdatedAt = expense.UpdatedAt,
-                UpdatedByUserId = expense.UpdatedByUserId,
-                Version = expense.Version,
+                UpdatedAt = transaction.UpdatedAt,
+                UpdatedByUserId = transaction.UpdatedByUserId,
+                Version = transaction.Version,
+            });
+        }
+
+        var budgets = await db.Budgets
+            .Where(b => b.CoupleId == coupleId && (since == null || b.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var budget in budgets)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = BudgetEntityType,
+                EntityId = budget.Id,
+                Operation = budget.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = budget.IsDeleted ? null : new BudgetPayloadDto
+                {
+                    Category = budget.Category,
+                    Year = budget.Year,
+                    Month = budget.Month,
+                    Amount = budget.Amount,
+                    Currency = budget.Currency,
+                },
+                UpdatedAt = budget.UpdatedAt,
+                UpdatedByUserId = budget.UpdatedByUserId,
+                Version = budget.Version,
             });
         }
 
@@ -141,7 +196,9 @@ public class SyncService(
             {
                 CoupleProfileEntityType => await ApplyCoupleProfileChangeAsync(coupleId, item, ct),
                 CalendarEventEntityType => await ApplyCalendarEventChangeAsync(coupleId, item, ct),
-                ExpenseEntityType => await ApplyExpenseChangeAsync(coupleId, item, ct),
+                AccountEntityType => await ApplyAccountChangeAsync(coupleId, item, ct),
+                TransactionEntityType => await ApplyTransactionChangeAsync(coupleId, item, ct),
+                BudgetEntityType => await ApplyBudgetChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
             results.Add(result);
@@ -297,21 +354,110 @@ public class SyncService(
         return Accepted(item, existing.Version, existing.UpdatedAt);
     }
 
-    /// <summary>Same create-vs-update-by-existence shape as <see cref="ApplyCalendarEventChangeAsync"/> — see its doc comment.</summary>
-    private async Task<SyncPushResultItemDto> ApplyExpenseChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    /// <summary>
+    /// Accounts are never deleted through sync (see the Phase 3 spec: "Do not allow destructive
+    /// deletion" — a partner's historical transactions may still reference this account). The
+    /// only way to retire one is UPDATE with IsActive = false. OpeningBalance is accepted from
+    /// the payload only on first CREATE; an UPDATE can never move it, since that would be a
+    /// silent, unexplained balance mutation with no corresponding Transaction — see
+    /// MoneyCalculator, which trusts OpeningBalance as a fixed starting point forever.
+    /// </summary>
+    private async Task<SyncPushResultItemDto> ApplyAccountChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
     {
-        var existing = await db.Expenses.FirstOrDefaultAsync(e => e.Id == item.EntityId, ct);
+        if (item.Operation == SyncOperation.Delete)
+        {
+            return Rejected(item, "Accounts cannot be deleted — deactivate instead.");
+        }
+
+        var existing = await db.Accounts.FirstOrDefaultAsync(a => a.Id == item.EntityId, ct);
 
         if (existing is not null && existing.CoupleId != coupleId)
         {
-            return Rejected(item, "You may only sync your own couple's expenses.");
+            return Rejected(item, "You may only sync your own couple's accounts.");
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        AccountPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<AccountPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Name))
+        {
+            return Rejected(item, "Name is required.");
+        }
+
+        if (!AccountType.IsValid(payload.Type))
+        {
+            return Rejected(item, "Invalid account type.");
+        }
+
+        if (!IsValidCurrencyCode(payload.Currency))
+        {
+            return Rejected(item, "Invalid currency code.");
+        }
+
+        if (Math.Abs(payload.OpeningBalance) > MaxMoneyAmount)
+        {
+            return Rejected(item, "Opening balance exceeds the maximum allowed.");
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new Account
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                OpeningBalance = payload.OpeningBalance, // set once, at creation, only
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.Accounts.Add(existing);
+        }
+
+        existing.Name = payload.Name;
+        existing.Type = payload.Type;
+        existing.Icon = payload.Icon;
+        existing.Currency = payload.Currency;
+        existing.IsActive = payload.IsActive;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    /// <summary>Same create-vs-update-by-existence + soft-delete shape as <see cref="ApplyCalendarEventChangeAsync"/>. Every financial-consistency rule (§45-47 of the spec) lives here as validation — the balance itself is never stored/mutated directly (see MoneyCalculator).</summary>
+    private async Task<SyncPushResultItemDto> ApplyTransactionChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.Transactions.FirstOrDefaultAsync(t => t.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's transactions.");
         }
 
         if (item.Operation == SyncOperation.Delete)
         {
             if (existing is null)
             {
-                // Already gone (or a retry of a delete that already landed) — idempotent success.
                 return Accepted(item, serverVersion: null, serverUpdatedAt: null);
             }
             if (item.ClientUpdatedAt < existing.UpdatedAt)
@@ -331,10 +477,10 @@ public class SyncService(
             return StaleWrite(item, existing.Version, existing.UpdatedAt);
         }
 
-        ExpensePayloadDto? payload;
+        TransactionPayloadDto? payload;
         try
         {
-            payload = item.Payload.Deserialize<ExpensePayloadDto>(JsonOptions);
+            payload = item.Payload.Deserialize<TransactionPayloadDto>(JsonOptions);
         }
         catch (JsonException)
         {
@@ -346,12 +492,17 @@ public class SyncService(
             return Rejected(item, "Invalid payload.");
         }
 
+        if (!TransactionType.IsValid(payload.Type))
+        {
+            return Rejected(item, "Invalid transaction type.");
+        }
+
         if (payload.Amount <= 0)
         {
             return Rejected(item, "Amount must be greater than zero.");
         }
 
-        if (payload.Amount > MaxExpenseAmount)
+        if (payload.Amount > MaxMoneyAmount)
         {
             return Rejected(item, "Amount exceeds the maximum allowed.");
         }
@@ -361,9 +512,44 @@ public class SyncService(
             return Rejected(item, "Invalid currency code.");
         }
 
-        if (!ExpenseCategory.IsValid(payload.Category))
+        if (!TransactionCategory.IsValidForType(payload.Type, payload.Category))
         {
-            return Rejected(item, "Invalid category.");
+            return Rejected(item, payload.Type == TransactionType.Transfer
+                ? "A transfer cannot have a category."
+                : "Invalid category.");
+        }
+
+        var sourceAccount = await db.Accounts.FirstOrDefaultAsync(a => a.Id == payload.AccountId && a.CoupleId == coupleId, ct);
+        if (sourceAccount is null)
+        {
+            return Rejected(item, "Account must belong to your couple.");
+        }
+
+        if (payload.Type == TransactionType.Transfer)
+        {
+            if (payload.DestinationAccountId is null)
+            {
+                return Rejected(item, "A transfer requires a destination account.");
+            }
+            if (payload.DestinationAccountId == payload.AccountId)
+            {
+                return Rejected(item, "Source and destination accounts must be different.");
+            }
+            var destinationAccount = await db.Accounts.FirstOrDefaultAsync(a => a.Id == payload.DestinationAccountId && a.CoupleId == coupleId, ct);
+            if (destinationAccount is null)
+            {
+                return Rejected(item, "Destination account must belong to your couple.");
+            }
+            // MVP: no currency conversion — a transfer only makes sense between accounts sharing
+            // one currency, and the transaction's own currency must agree with both.
+            if (sourceAccount.Currency != destinationAccount.Currency || payload.Currency != sourceAccount.Currency)
+            {
+                return Rejected(item, "Transfer requires matching currencies.");
+            }
+        }
+        else if (payload.DestinationAccountId is not null)
+        {
+            return Rejected(item, "Only a transfer may have a destination account.");
         }
 
         if (payload.PaidByUserId is Guid paidByUserId)
@@ -384,7 +570,7 @@ public class SyncService(
         {
             // First time the server has seen this id — trust the device-generated UUID, same as
             // calendar events (offline-first: ids are minted on-device, not assigned server-side).
-            existing = new Expense
+            existing = new Transaction
             {
                 Id = item.EntityId,
                 CoupleId = coupleId,
@@ -392,16 +578,132 @@ public class SyncService(
                 CreatedAt = now,
                 Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
             };
-            db.Expenses.Add(existing);
+            db.Transactions.Add(existing);
         }
 
+        existing.Type = payload.Type;
         existing.Amount = payload.Amount;
         existing.Currency = payload.Currency;
-        existing.Description = payload.Description;
+        existing.AccountId = payload.AccountId;
+        existing.DestinationAccountId = payload.DestinationAccountId;
         existing.Category = payload.Category;
-        existing.ExpenseDate = payload.ExpenseDate;
+        existing.Description = payload.Description;
+        existing.TransactionDate = payload.TransactionDate;
         existing.Notes = payload.Notes;
         existing.PaidByUserId = payload.PaidByUserId;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    /// <summary>Same create-vs-update-by-existence + soft-delete shape as calendar events/transactions, plus the "at most one active budget per couple+year+month+category" rule (also enforced by a filtered unique index — see BudgetConfiguration — as a defense-in-depth backstop).</summary>
+    private async Task<SyncPushResultItemDto> ApplyBudgetChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.Budgets.FirstOrDefaultAsync(b => b.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's budgets.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        BudgetPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<BudgetPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (!TransactionCategory.IsValidExpenseCategory(payload.Category))
+        {
+            return Rejected(item, "Invalid category.");
+        }
+
+        if (payload.Month is < 1 or > 12)
+        {
+            return Rejected(item, "Month must be between 1 and 12.");
+        }
+
+        if (payload.Year is < 2000 or > 2100)
+        {
+            return Rejected(item, "Invalid year.");
+        }
+
+        if (payload.Amount <= 0)
+        {
+            return Rejected(item, "Amount must be greater than zero.");
+        }
+
+        if (payload.Amount > MaxMoneyAmount)
+        {
+            return Rejected(item, "Amount exceeds the maximum allowed.");
+        }
+
+        if (!IsValidCurrencyCode(payload.Currency))
+        {
+            return Rejected(item, "Invalid currency code.");
+        }
+
+        var duplicateExists = await db.Budgets.AnyAsync(
+            b => b.CoupleId == coupleId && b.Year == payload.Year && b.Month == payload.Month
+                 && b.Category == payload.Category && !b.IsDeleted && b.Id != item.EntityId, ct);
+        if (duplicateExists)
+        {
+            return Rejected(item, "A budget for this category and month already exists.");
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new Budget
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.Budgets.Add(existing);
+        }
+
+        existing.Category = payload.Category;
+        existing.Year = payload.Year;
+        existing.Month = payload.Month;
+        existing.Amount = payload.Amount;
+        existing.Currency = payload.Currency;
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;
         existing.Version += 1;

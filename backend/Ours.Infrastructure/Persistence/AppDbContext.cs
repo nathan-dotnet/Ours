@@ -15,7 +15,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<CoupleMember> CoupleMembers => Set<CoupleMember>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
-    public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<Transaction> Transactions => Set<Transaction>();
+    public DbSet<Budget> Budgets => Set<Budget>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
