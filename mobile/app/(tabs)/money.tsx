@@ -12,7 +12,7 @@ import { useBudgetsForMonth } from '@/hooks/useBudgets';
 import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForMonth } from '@/hooks/useTransactions';
 import { triggerSync } from '@/sync';
-import { getAccountGridView } from '@/utils/accountGrid';
+import { chunkIntoRows, getAccountGridView } from '@/utils/accountGrid';
 import { calculateAccountBalance, calculateBudgetRemaining, calculateCategorySpending, calculateMonthlySpending } from '@/utils/moneyCalculations';
 import { describeTransaction, getRecentActivity } from '@/utils/moneyActivity';
 import { formatMoney } from '@/utils/money';
@@ -124,8 +124,12 @@ export default function MoneyScreen() {
               </View>
             )}
 
-            {/* Budgets never block spending — this pairs "plan" with "actually spend" so that isn't a dead end. */}
-            <View className="flex-row gap-3">
+            {/*
+              Budgets never block spending — this pairs "plan" with "actually spend" so that
+              isn't a dead end. Full-width and stacked (never side-by-side) so both read as
+              their own distinct primary action, not a single split button.
+            */}
+            <View className="gap-3">
               <Button label="+ Add Budget" variant="secondary" onPress={() => router.push('/budgets/new')} />
               <Button label="+ Add Expense" onPress={() => router.push('/transactions/new?type=Expense')} />
             </View>
@@ -143,18 +147,28 @@ export default function MoneyScreen() {
             ) : (
               <View className="gap-2">
                 <View style={{ position: 'relative' }}>
-                  <View className="flex-row flex-wrap gap-3">
-                    {visibleAccounts.map((account) => (
-                      <AccountCard
-                        key={account.id}
-                        account={account}
-                        fill
-                        balanceCents={calculateAccountBalance(account.opening_balance_cents, account.id, allTransactions)}
-                        onPress={() => router.push(`/accounts/${account.id}`)}
-                      />
+                  {/*
+                    Explicit row chunking (chunkIntoRows), not flex-wrap — a wrapping row
+                    reflows to however many cards fit a given screen width, which is exactly
+                    the "responsive grid that increases columns" this must never become. Every
+                    row here always has at most 2 cards, on any screen size, collapsed or expanded.
+                  */}
+                  <View className="gap-3">
+                    {chunkIntoRows(visibleAccounts).map((row, rowIndex) => (
+                      <View key={rowIndex} className="flex-row gap-3">
+                        {row.map((account) => (
+                          <AccountCard
+                            key={account.id}
+                            account={account}
+                            fill
+                            balanceCents={calculateAccountBalance(account.opening_balance_cents, account.id, allTransactions)}
+                            onPress={() => router.push(`/accounts/${account.id}`)}
+                          />
+                        ))}
+                        {/* An odd trailing account gets a same-size empty spacer so its card doesn't stretch across both columns. */}
+                        {row.length === 1 ? <View className="flex-1" /> : null}
+                      </View>
                     ))}
-                    {/* Grid rows are 2-wide — pad an odd trailing card so it doesn't stretch full width. */}
-                    {visibleAccounts.length % 2 === 1 ? <View className="flex-1" /> : null}
                   </View>
                   {!accountsExpanded && hasMoreAccounts ? (
                     // Purely a visual preview cue — every card above remains fully tappable.

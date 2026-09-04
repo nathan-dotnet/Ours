@@ -1,4 +1,4 @@
-import { ACCOUNT_GRID_PREVIEW_COUNT, getAccountGridView } from '../accountGrid';
+import { ACCOUNT_GRID_PREVIEW_COUNT, chunkIntoRows, getAccountGridView } from '../accountGrid';
 
 function accounts(count: number): { id: string }[] {
   return Array.from({ length: count }, (_, i) => ({ id: `account-${i}` }));
@@ -37,5 +37,54 @@ describe('getAccountGridView', () => {
     const view = getAccountGridView(accounts(0), false);
     expect(view.visible).toHaveLength(0);
     expect(view.hasMore).toBe(false);
+  });
+});
+
+describe('chunkIntoRows', () => {
+  it('always produces rows of exactly 2 — never 3, 4, or more, regardless of how many accounts exist', () => {
+    for (const count of [1, 2, 3, 4, 5, 6, 10, 12, 37]) {
+      const rows = chunkIntoRows(accounts(count));
+      for (const row of rows) {
+        expect(row.length).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  it('produces the exact row breakdown for 6 accounts: [1,2] [3,4] [5,6]', () => {
+    const rows = chunkIntoRows(accounts(6));
+    expect(rows.map((row) => row.map((a) => a.id))).toEqual([
+      ['account-0', 'account-1'],
+      ['account-2', 'account-3'],
+      ['account-4', 'account-5'],
+    ]);
+  });
+
+  it('produces 6 rows of 2 for 12 accounts', () => {
+    const rows = chunkIntoRows(accounts(12));
+    expect(rows).toHaveLength(6);
+    expect(rows.every((row) => row.length === 2)).toBe(true);
+  });
+
+  it('a trailing odd account gets its own row of 1, not folded into a wider row', () => {
+    const rows = chunkIntoRows(accounts(5));
+    expect(rows).toHaveLength(3);
+    expect(rows[2]).toHaveLength(1);
+  });
+
+  it('the collapsed preview (4 accounts) and the expanded view (all of them) both chunk into the same fixed 2-column shape', () => {
+    const all = accounts(10);
+    const collapsed = getAccountGridView(all, false);
+    const expanded = getAccountGridView(all, true);
+
+    expect(chunkIntoRows(collapsed.visible)).toEqual([
+      [all[0], all[1]],
+      [all[2], all[3]],
+    ]);
+    expect(chunkIntoRows(expanded.visible)).toHaveLength(5);
+    expect(chunkIntoRows(expanded.visible).every((row) => row.length <= 2)).toBe(true);
+  });
+
+  it('returns no rows for an empty list', () => {
+    expect(chunkIntoRows(accounts(0))).toEqual([]);
   });
 });
