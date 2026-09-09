@@ -13,7 +13,13 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForMonth } from '@/hooks/useTransactions';
 import { triggerSync } from '@/sync';
 import { chunkIntoRows, getAccountGridView } from '@/utils/accountGrid';
-import { calculateAccountBalance, calculateBudgetRemaining, calculateCategorySpending, calculateMonthlySpending } from '@/utils/moneyCalculations';
+import {
+  calculateAccountBalance,
+  calculateBudgetRemaining,
+  calculateCategorySpending,
+  calculateMonthlySpending,
+  calculateTotalBalance,
+} from '@/utils/moneyCalculations';
 import { describeTransaction, getRecentActivity } from '@/utils/moneyActivity';
 import { formatMoney } from '@/utils/money';
 
@@ -39,6 +45,7 @@ export default function MoneyScreen() {
   const allBudgets = budgets ?? [];
   const currency = allAccounts[0]?.currency ?? 'PHP';
 
+  const totalBalanceCents = calculateTotalBalance(allAccounts, allTransactions);
   const spentThisMonthCents = calculateMonthlySpending(allTransactions, year, month);
   const totalBudgetCents = allBudgets.reduce((sum, b) => sum + b.amount_cents, 0);
   const remainingCents = calculateBudgetRemaining(totalBudgetCents, spentThisMonthCents);
@@ -81,6 +88,23 @@ export default function MoneyScreen() {
         </View>
       ) : (
         <View className="mt-4 gap-8">
+          {/*
+            --- Total balance: a single across-all-accounts figure, above Budget. It's a plain
+            sum of calculateAccountBalance (a Transfer's two legs cancel out across the whole
+            couple) — not a new stored/synced figure, same "derive at read time" approach as
+            Recent Activity. Skipped entirely with zero accounts; the Accounts section below
+            already owns that empty state.
+          */}
+          {allAccounts.length > 0 ? (
+            <View className="gap-2 rounded-2xl bg-blush p-4">
+              <Text className="text-sm font-semibold text-clay">Total Balance</Text>
+              <Text className="text-3xl font-semibold text-ink">{formatMoney(totalBalanceCents, currency)}</Text>
+              <Text className="text-xs text-clay">
+                Across {allAccounts.length} account{allAccounts.length === 1 ? '' : 's'}
+              </Text>
+            </View>
+          ) : null}
+
           {/* --- Budget first: the dashboard leads with "how am I doing", not "where's my money" --- */}
           <View className="gap-3">
             <Text className="text-sm font-semibold text-clay">Budget</Text>

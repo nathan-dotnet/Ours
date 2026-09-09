@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { parseAmountInputToCents } from '../utils/money';
 
 /** Mirrors the backend's AccountType constants exactly. */
-export const ACCOUNT_TYPES = ['Bank', 'EWallet', 'Cash', 'Other'] as const;
+export const ACCOUNT_TYPES = ['Bank', 'EWallet', 'Cash', 'Savings', 'Other'] as const;
 
 export type AccountTypeValue = (typeof ACCOUNT_TYPES)[number];
 

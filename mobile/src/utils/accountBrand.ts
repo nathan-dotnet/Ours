@@ -31,6 +31,7 @@ const GENERIC_BY_TYPE: Record<string, AccountBrand> = {
   Bank: { isKnownBrand: false, logo: null, emoji: '🏦', label: 'Bank' },
   EWallet: { isKnownBrand: false, logo: null, emoji: '📱', label: 'E-Wallet' },
   Cash: { isKnownBrand: false, logo: null, emoji: '💵', label: 'Cash' },
+  Savings: { isKnownBrand: false, logo: null, emoji: '🐷', label: 'Savings' },
   Other: { isKnownBrand: false, logo: null, emoji: '💰', label: 'Other' },
 };
 
