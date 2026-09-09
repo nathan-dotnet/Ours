@@ -61,7 +61,7 @@ export default function MoneyScreen() {
   return (
     <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
       <View className="pb-1 pt-4">
-        <Text className="text-3xl font-semibold text-ink">Money</Text>
+        <Text className="text-3xl font-semibold text-ink">💰 Money</Text>
         <Text className="text-sm text-clay">{monthFormatter.format(now)}</Text>
       </View>
 

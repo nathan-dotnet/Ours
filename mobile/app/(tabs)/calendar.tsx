@@ -55,7 +55,7 @@ export default function CalendarScreen() {
   return (
     <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
       <View className="flex-row items-center justify-between pb-4 pt-4">
-        <Text className="text-3xl font-semibold text-ink">Calendar</Text>
+        <Text className="text-3xl font-semibold text-ink">📅 Calendar</Text>
         <View className="flex-row items-center gap-2">
           {!isToday ? <Button label="Today" variant="secondary" onPress={onToday} /> : null}
           <Pressable onPress={() => router.push('/calendar/new')} className="rounded-full bg-rose px-4 py-2">
