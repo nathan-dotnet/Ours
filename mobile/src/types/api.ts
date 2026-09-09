@@ -188,3 +188,29 @@ export interface VaultItemPayload {
 export interface VaultRevealResponseDto {
   password: string;
 }
+
+/** Mirrors the backend's MissMeInteractionType constants. */
+export type MissMeInteractionKind = 'MissMe' | 'MissYouToo';
+
+export interface MissMeInteractionDto {
+  id: string;
+  senderUserId: string;
+  senderDisplayName: string;
+  receiverUserId: string;
+  type: MissMeInteractionKind;
+  inResponseToId: string | null;
+  createdAt: string;
+}
+
+export interface MissMeStatusResponseDto {
+  canSend: boolean;
+  nextAvailableAt: string | null;
+  pendingFromPartner: MissMeInteractionDto | null;
+  recentHistory: MissMeInteractionDto[];
+}
+
+export interface MissMeSendResponseDto {
+  sent: boolean;
+  nextAvailableAt: string | null;
+  interaction: MissMeInteractionDto | null;
+}

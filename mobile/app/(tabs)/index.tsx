@@ -1,135 +1,193 @@
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import { RefreshControl, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { MissMeButton, type MissMeButtonState } from '@/components/MissMeButton';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
-import { TextField } from '@/components/TextField';
-import { useLocalCouple, useUpdateCoupleProfile } from '@/hooks/useCouple';
+import { useLocalCouple } from '@/hooks/useCouple';
+import { useMissMeStatus, useSendMissMe } from '@/hooks/useMissMe';
 import { useAuthStore } from '@/stores/authStore';
 import { triggerSync } from '@/sync';
-import { coupleProfileSchema, type CoupleProfileFormValues } from '@/validation/couple';
-import { softRaised } from '@/styles/neumorphism';
+import { softRaised, softRaisedSubtle } from '@/styles/neumorphism';
+import { getGreeting } from '@/utils/greeting';
+import { describeMissMeMoment, formatMomentTimestamp } from '@/utils/missMeActivity';
+import { daysTogether } from '@/utils/relationship';
 
-const TODAY_LABEL = new Date().toLocaleDateString(undefined, {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-});
+/** How long the button's brief "sent" confirmation stays up before falling back to the cooldown state — a small visual confirmation, not a lingering banner. */
+const SENT_CONFIRMATION_MS = 2200;
+/** "Little Moments" stays a handful of recent entries, never a scrolling feed. */
+const HISTORY_PREVIEW_COUNT = 3;
 
+function formatCooldownRemaining(nextAvailableAt: string, now: Date): string {
+  const minutes = Math.ceil((new Date(nextAvailableAt).getTime() - now.getTime()) / 60_000);
+  if (minutes <= 1) return 'a moment';
+  return `${minutes} min`;
+}
+
+/**
+ * The private, quiet home base — a greeting, the couple's own milestone number, one small
+ * gesture (Miss Me), and two doors into the rest of the app. Editing the couple's nickname and
+ * anniversary date now lives in Settings ("Our relationship") rather than here — this screen has
+ * nothing to manage, only something to feel.
+ */
 export default function HomeScreen() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.session?.user);
-  const { data, isLoading } = useLocalCouple();
-  const updateProfile = useUpdateCoupleProfile();
-  const [isEditing, setIsEditing] = useState(false);
+  const { data } = useLocalCouple();
+  const couple = data?.couple ?? null;
+  const partner = data?.members.find((m) => m.user_id !== user?.id);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [justSent, setJustSent] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isReplying, setIsReplying] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const missMeStatus = useMissMeStatus(couple?.id);
+  const sendMissMe = useSendMissMe();
+
+  // Keeps the greeting and any cooldown countdown honest across midnight/half-hour boundaries
+  // without polling the server — this only ever touches local component state.
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const onRefresh = async () => {
     setIsRefreshing(true);
     try {
       await triggerSync();
+      await missMeStatus.refetch();
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  const couple = data?.couple ?? null;
-  const members = data?.members ?? [];
-  const partner = members.find((m) => m.user_id !== user?.id);
-
-  const { control, handleSubmit, reset } = useForm<CoupleProfileFormValues>({
-    resolver: zodResolver(coupleProfileSchema),
-    defaultValues: { nickname: couple?.nickname ?? '', anniversaryDate: couple?.anniversary_date ?? '' },
-  });
-
-  const startEditing = () => {
-    reset({ nickname: couple?.nickname ?? '', anniversaryDate: couple?.anniversary_date ?? '' });
-    setIsEditing(true);
+  const onPressMissMe = async () => {
+    if (isSending) return;
+    setActionError(null);
+    setIsSending(true);
+    try {
+      const result = await sendMissMe('MissMe');
+      if (result.sent) {
+        setJustSent(true);
+        setTimeout(() => setJustSent(false), SENT_CONFIRMATION_MS);
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not send this right now.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  const onSave = async (values: CoupleProfileFormValues) => {
-    if (!couple || !user) return;
-    await updateProfile(
-      couple,
-      { nickname: values.nickname?.trim() || null, anniversaryDate: values.anniversaryDate?.trim() || null },
-      user.id,
-    );
-    setIsEditing(false);
+  const onMissYouToo = async () => {
+    const pending = missMeStatus.data?.pendingFromPartner;
+    if (!pending || isReplying) return;
+    setActionError(null);
+    setIsReplying(true);
+    try {
+      await sendMissMe('MissYouToo', pending.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not send this right now.');
+    } finally {
+      setIsReplying(false);
+    }
   };
+
+  const canSend = missMeStatus.data?.canSend ?? true;
+  const buttonState: MissMeButtonState = isSending ? 'sending' : justSent ? 'sent' : !canSend ? 'cooldown' : 'idle';
+
+  const buttonLabel = justSent
+    ? 'sent 💌'
+    : !canSend && missMeStatus.data?.nextAvailableAt
+      ? `sent · back in ${formatCooldownRemaining(missMeStatus.data.nextAvailableAt, now)}`
+      : 'miss you';
+
+  const pending = missMeStatus.data?.pendingFromPartner;
+  const history = missMeStatus.data?.recentHistory.slice(0, HISTORY_PREVIEW_COUNT) ?? [];
 
   return (
     <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#5B7FBE" />}>
-      <View className="gap-1 pb-6 pt-4">
-        <Text className="text-sm font-medium text-clay">{TODAY_LABEL}</Text>
+      <View className="gap-1 pb-2 pt-4">
+        <Text className="text-2xl font-medium text-clay">{getGreeting(now.getHours())},</Text>
         <Text className="text-3xl font-semibold text-ink">
-          {couple?.nickname ? couple.nickname : `Hi ${user?.displayName ?? 'there'}`}
+          {user?.displayName ?? 'there'} <Text className="text-2xl opacity-60">❤</Text>
         </Text>
       </View>
 
       <SyncStatusBadge />
 
-      {isLoading ? null : couple ? (
-        <View className="mt-6 gap-4 rounded-2xl bg-blush p-5" style={softRaised}>
-          <View className="flex-row items-center justify-between">
-            <Text className="text-lg font-semibold text-ink">Our details</Text>
-            {!isEditing && (
-              <Button label="Edit" variant="secondary" onPress={startEditing} />
-            )}
-          </View>
+      <View className="items-center gap-1 py-8">
+        {couple ? (
+          (() => {
+            const days = daysTogether(couple.anniversary_date, now);
+            return days !== null ? (
+              <>
+                <Text className="text-5xl font-semibold text-ink">{days.toLocaleString()}</Text>
+                <Text className="text-sm font-medium tracking-wide text-clay">days together</Text>
+              </>
+            ) : (
+              <>
+                <Text className="text-sm text-clay">Add your anniversary date in Settings</Text>
+                <Text className="text-xs text-clay/70">to see how long you've been together</Text>
+              </>
+            );
+          })()
+        ) : (
+          <Text className="text-sm text-clay">Your couple isn't set up on this device yet — pull to sync once you're online.</Text>
+        )}
+      </View>
 
-          {isEditing ? (
-            <View className="gap-3">
-              <Controller
-                control={control}
-                name="nickname"
-                render={({ field }) => (
-                  <TextField label="A nickname for us" placeholder="e.g. Team Ross" value={field.value} onChangeText={field.onChange} />
-                )}
-              />
-              <Controller
-                control={control}
-                name="anniversaryDate"
-                render={({ field }) => (
-                  <TextField
-                    label="Anniversary (YYYY-MM-DD)"
-                    placeholder="2020-06-15"
-                    value={field.value}
-                    onChangeText={field.onChange}
-                  />
-                )}
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Button label="Cancel" variant="secondary" onPress={() => setIsEditing(false)} />
-                </View>
-                <View className="flex-1">
-                  <Button label="Save" onPress={handleSubmit(onSave)} />
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View className="gap-2">
-              <DetailRow label="Together with" value={partner?.display_name ?? 'Waiting for your partner to join'} />
-              <DetailRow label="Anniversary" value={couple.anniversary_date ?? 'Not set'} />
-              <DetailRow label="Invite code" value={couple.invite_code} />
-            </View>
-          )}
+      {couple && partner ? (
+        <View className="items-center gap-3 pb-8">
+          <MissMeButton state={buttonState} onPress={onPressMissMe} />
+          <Text className="text-sm font-medium text-clay">{buttonLabel}</Text>
+          {actionError ? <Text className="text-xs text-rose">{actionError}</Text> : null}
         </View>
-      ) : (
-        <View className="mt-6 rounded-2xl bg-blush p-5" style={softRaised}>
-          <Text className="text-clay">Your couple isn't set up on this device yet — pull to sync once you're online.</Text>
+      ) : couple ? (
+        <View className="items-center pb-8">
+          <Text className="text-sm text-clay">Waiting for your partner to join</Text>
         </View>
-      )}
+      ) : null}
+
+      {pending ? (
+        <View className="mb-8 gap-3 rounded-2xl bg-blush p-4" style={softRaised}>
+          <Text className="text-base text-ink">💕 {pending.senderDisplayName} misses you</Text>
+          <Button label="❤️ Miss You Too" variant="secondary" onPress={onMissYouToo} loading={isReplying} />
+        </View>
+      ) : null}
+
+      {history.length > 0 && user ? (
+        <View className="gap-2 pb-8">
+          <Text className="text-sm font-semibold text-clay">Little Moments</Text>
+          {history.map((item) => (
+            <View key={item.id} className="gap-0.5 rounded-xl bg-blush/60 px-4 py-3" style={softRaisedSubtle}>
+              <Text className="text-sm text-ink">{describeMissMeMoment(item, user.id, partner?.display_name ?? 'your partner')}</Text>
+              <Text className="text-xs text-clay">{formatMomentTimestamp(item.createdAt, now)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <View className="gap-3 pb-4">
+        <Text className="text-sm font-semibold text-clay">Our Moments</Text>
+        <View className="flex-row gap-3">
+          <MomentCard label="Dates" emoji="📅" onPress={() => router.push('/calendar')} />
+          <MomentCard label="Vault" emoji="🔐" onPress={() => router.push('/vault')} />
+        </View>
+      </View>
     </Screen>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+/** A soft, tactile tile — one of a pair today, but sized/styled to sit alongside more later (Memories, Notes) without changing shape. */
+function MomentCard({ label, emoji, onPress }: { label: string; emoji: string; onPress: () => void }) {
   return (
-    <View className="flex-row justify-between">
-      <Text className="text-clay">{label}</Text>
-      <Text className="font-medium text-ink">{value}</Text>
-    </View>
+    <Pressable onPress={onPress} className="h-28 flex-1 items-center justify-center gap-2 rounded-2xl bg-blush" style={softRaised}>
+      <Text className="text-3xl">{emoji}</Text>
+      <Text className="text-base font-medium text-ink">{label}</Text>
+    </Pressable>
   );
 }

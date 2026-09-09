@@ -146,6 +146,42 @@ progress) reads through instead of computing its own arithmetic:
 - Leaving a couple's cleanup (`removeLocalCoupleAndData`) removes a couple's accounts,
   transactions, and budgets the same way it already removed calendar events — see below.
 
+## Home & Miss Me
+
+`app/(tabs)/index.tsx` is the private, minimal "home base" — a time-based greeting
+(`utils/greeting.ts`), the couple's own days-together number (`utils/relationship.ts`'s
+`daysTogether`, computed from `couple.anniversary_date` — never a stored/synced number, always
+derived fresh), the Miss Me gesture, and two doors into the rest of the app ("Our Moments": Dates
+→ the Calendar tab, Vault → the Vault tab). Editing the couple's nickname and anniversary date
+moved to Settings ("Our relationship") — this screen only ever *shows* things now, mirroring
+Money/Vault/Calendar's own "one dashboard, edit screens live elsewhere" shape.
+
+- **Miss Me is not offline-first, deliberately** — unlike every other feature in this app, it's a
+  live gesture to a specific person, gated by a cooldown only the server's clock can enforce
+  correctly. `useMissMeStatus`/`useSendMissMe` (`hooks/useMissMe.ts`) call
+  `GET /api/miss-me/status` / `POST /api/miss-me/send` directly — no SQLite table, no sync_queue.
+  Sending while offline throws before ever hitting the network (same up-front `getIsOnline()`
+  check `useCoupleActions.leaveCouple` uses), rather than silently queuing something that would
+  be stale by the time it actually sent.
+- **No polling** — the status query is fetched on mount and refetched after a send, and folding
+  `useSyncStore`'s `lastSyncedAt` into its query key means it also refreshes for free whenever a
+  sync round completes (including the existing AppState-driven sync-on-foreground in
+  `sync/index.ts`), so opening the app is what surfaces a partner's Miss Me, without any new
+  "check for updates" timer of its own.
+- **`MissMeButton.tsx`** is only the circle — cooldown/confirmation copy is the screen's job, kept
+  out of the component so it stays reusable and small. Its three visual states approximate
+  neumorphism within what a single React Native shadow can actually do (see
+  `styles/neumorphism.ts`): normal is a soft raised shadow, a press swaps to a much fainter one
+  plus a slight scale-down (the honest stand-in for "inset" — React Native has no real inset
+  shadow), and cooldown drops the shadow and dims the heart rather than hiding the button.
+  `AccessibilityInfo.isReduceMotionEnabled()` skips the scale/pulse animations entirely when set.
+- **No push notifications** — this app has no APNs/FCM wiring (see backend/README.md's Known
+  Limitations). "Notifying the partner" means the next time their Home screen loads or refreshes,
+  not an OS-level push; this is a deliberate scope decision, not a bug.
+- **Couple security carries over exactly as everywhere else**: the send request has no
+  receiver/couple id field at all for the client to supply — the backend resolves the partner
+  itself from the couple's membership. See backend/README.md's Miss Me section for the rest.
+
 ## Vault (shared encrypted passwords)
 
 `vaultRepository.ts` follows the same offline-first shape as every other feature, with one
@@ -233,7 +269,11 @@ leaver's own device and the partner's, rather than two.
   it on a simulator/device to confirm visually before shipping. This applies to the deep link and
   biometric prompts specifically as well — see the phase report's "Manual Verification" section.
 - Push notifications (`expo-notifications` is installed but unconfigured) and photo upload
-  (`expo-image-picker` installed, unused) are foundation-only — wired up in later phases.
+  (`expo-image-picker` installed, unused) are foundation-only — wired up in later phases. Miss Me
+  deliberately doesn't pull this forward either — see Home & Miss Me above.
+- Miss Me requires connectivity to send or reply (there is nothing sensible to queue offline —
+  see Home & Miss Me above) and, for the same reason, to see a partner's Miss Me at all: it's
+  fetched fresh from the server, not cached in SQLite.
 - Calendar reminders are stored (`reminder_at`) but nothing schedules an actual device
   notification for one yet — that's Phase 6.
 - No "Enable biometric login?" prompt after registration (only after a normal login) — the spec

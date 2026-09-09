@@ -1,17 +1,21 @@
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { Alert, Share, Switch, Text, View } from 'react-native';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
+import { TextField } from '@/components/TextField';
 import { useAuthActions } from '@/hooks/useAuthActions';
 import { useBiometricCapability, useBiometricLoginEnabled } from '@/hooks/useBiometricAuth';
 import { useCoupleActions } from '@/hooks/useCoupleActions';
-import { useLocalCouple } from '@/hooks/useCouple';
+import { useLocalCouple, useUpdateCoupleProfile } from '@/hooks/useCouple';
 import { biometricLabel, disableBiometricLogin, enableBiometricLogin } from '@/services/biometricAuth';
 import { useAuthStore } from '@/stores/authStore';
 import { triggerSync } from '@/sync';
 import { softRaised } from '@/styles/neumorphism';
+import { coupleProfileSchema, type CoupleProfileFormValues } from '@/validation/couple';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -19,14 +23,44 @@ export default function SettingsScreen() {
   const { data } = useLocalCouple();
   const { logout } = useAuthActions();
   const { leaveCouple } = useCoupleActions();
+  const updateProfile = useUpdateCoupleProfile();
   const capability = useBiometricCapability();
   const [biometricEnabled, refreshBiometricEnabled] = useBiometricLoginEnabled();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTogglingBiometric, setIsTogglingBiometric] = useState(false);
   const [isLeavingCouple, setIsLeavingCouple] = useState(false);
+  const [isEditingRelationship, setIsEditingRelationship] = useState(false);
+  const [isSavingRelationship, setIsSavingRelationship] = useState(false);
 
   const partner = data?.members.find((m) => m.user_id !== user?.id);
+  const couple = data?.couple ?? null;
+
+  const { control: relationshipControl, handleSubmit: handleRelationshipSubmit, reset: resetRelationshipForm } =
+    useForm<CoupleProfileFormValues>({
+      resolver: zodResolver(coupleProfileSchema),
+      defaultValues: { nickname: couple?.nickname ?? '', anniversaryDate: couple?.anniversary_date ?? '' },
+    });
+
+  const startEditingRelationship = () => {
+    resetRelationshipForm({ nickname: couple?.nickname ?? '', anniversaryDate: couple?.anniversary_date ?? '' });
+    setIsEditingRelationship(true);
+  };
+
+  const onSaveRelationship = async (values: CoupleProfileFormValues) => {
+    if (!couple || !user) return;
+    setIsSavingRelationship(true);
+    try {
+      await updateProfile(
+        couple,
+        { nickname: values.nickname?.trim() || null, anniversaryDate: values.anniversaryDate?.trim() || null },
+        user.id,
+      );
+      setIsEditingRelationship(false);
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  };
 
   const onLogout = async () => {
     setIsLoggingOut(true);
@@ -129,10 +163,58 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {data?.couple ? (
+        {couple ? (
+          <View className="gap-3 rounded-2xl bg-blush p-5" style={softRaised}>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-lg font-semibold text-ink">Our relationship</Text>
+              {!isEditingRelationship ? <Button label="Edit" variant="secondary" onPress={startEditingRelationship} /> : null}
+            </View>
+
+            {isEditingRelationship ? (
+              <View className="gap-3">
+                <Controller
+                  control={relationshipControl}
+                  name="nickname"
+                  render={({ field }) => (
+                    <TextField label="A nickname for us" placeholder="e.g. Team Ross" value={field.value} onChangeText={field.onChange} />
+                  )}
+                />
+                <Controller
+                  control={relationshipControl}
+                  name="anniversaryDate"
+                  render={({ field }) => (
+                    <TextField
+                      label="Anniversary (YYYY-MM-DD)"
+                      placeholder="2020-06-15"
+                      value={field.value}
+                      onChangeText={field.onChange}
+                    />
+                  )}
+                />
+                <View className="flex-row gap-3">
+                  <View className="flex-1">
+                    <Button label="Cancel" variant="secondary" onPress={() => setIsEditingRelationship(false)} />
+                  </View>
+                  <View className="flex-1">
+                    <Button label="Save" onPress={handleRelationshipSubmit(onSaveRelationship)} loading={isSavingRelationship} />
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View className="gap-1">
+                {couple.nickname ? <Text className="text-base font-medium text-ink">{couple.nickname}</Text> : null}
+                <Text className="text-sm text-clay">
+                  {couple.anniversary_date ? `Together since ${couple.anniversary_date}` : 'Anniversary date not set yet'}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {couple ? (
           <View className="gap-3 rounded-2xl bg-blush p-5" style={softRaised}>
             <Text className="text-lg font-semibold text-ink">Invite code</Text>
-            <Text className="text-2xl font-bold tracking-widest text-rose">{data.couple.invite_code}</Text>
+            <Text className="text-2xl font-bold tracking-widest text-rose">{couple.invite_code}</Text>
             <Button label="Share invite code" variant="secondary" onPress={onShareCode} />
           </View>
         ) : null}

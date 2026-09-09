@@ -6,6 +6,9 @@ import type {
   CoupleDto,
   LeaveCoupleResponseDto,
   MessageResponseDto,
+  MissMeInteractionKind,
+  MissMeSendResponseDto,
+  MissMeStatusResponseDto,
   SyncPullResponseDto,
   SyncPushItemDto,
   SyncPushResponseDto,
@@ -142,6 +145,17 @@ export const api = {
    * gate before ever calling this.
    */
   revealVaultPassword: (id: string) => request<VaultRevealResponseDto>(`/api/vault/${id}/reveal`, { method: 'POST' }),
+
+  /**
+   * Cooldown state, any unanswered Miss Me from the partner, and a short recent history — one
+   * call, everything the Home screen needs. Not a synced/cached-offline entity: cooldown state
+   * is only ever true as of the server's clock, so this always asks fresh (see useMissMe.ts).
+   */
+  getMissMeStatus: () => request<MissMeStatusResponseDto>('/api/miss-me/status'),
+
+  /** Sends a MissMe (subject to the server's cooldown) or a MissYouToo reply — always online, never queued, for the same reason revealVaultPassword is. */
+  sendMissMe: (type: MissMeInteractionKind, inResponseToId?: string) =>
+    request<MissMeSendResponseDto>('/api/miss-me/send', { method: 'POST', body: { type, inResponseToId } }),
 
   forgotPassword: (email: string) =>
     request<MessageResponseDto>('/api/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
