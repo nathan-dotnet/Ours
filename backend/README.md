@@ -141,6 +141,23 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
     never interpolate a password into an exception message (every `Rejected(...)` here is a
     static string, same convention as every other entity), so even `ExceptionHandlingMiddleware`'s
     `logger.LogWarning(ex, ...)` — which does log `ex.Message` — can never end up logging one.
+- **Miss Me** (`MissMeInteraction`): the Home screen's one-tap "I miss you" gesture and its "Miss
+  You Too" reply. Deliberately **not** a synced entity — every row is a one-shot, server-created,
+  append-only fact nobody ever edits or deletes offline, so it doesn't belong in the generic
+  create/update/delete sync pipeline, and (like Vault's reveal) it needs something that pipeline
+  can't give it: a synchronous, server-enforced cooldown with an immediate yes/no answer. Two
+  endpoints instead — `GET /api/miss-me/status` (cooldown state, any of the partner's unanswered
+  MissMe, and a short recent history, all in one call) and `POST /api/miss-me/send`. The partner
+  is always resolved server-side from the couple's active `CoupleMember` rows — the request body
+  has no receiver/couple id field for a client to even try supplying one. The 30-minute cooldown
+  (`MissMeService.Cooldown`) is enforced entirely server-side by querying the sender's own most
+  recent `MissMe` row; being on cooldown returns `{ sent: false, nextAvailableAt }` with a normal
+  200, not an error — an expected state the client renders, not a failure. A `MissYouToo` must
+  name the `MissMe` it's replying to and can only be sent by that MissMe's actual receiver (same
+  "wrong id and not-yours look identical" 404 shape as Vault's reveal); replying twice to the same
+  MissMe is idempotent rather than rejected. There is no push notification here — this app has no
+  APNs/FCM wiring at all yet (see SignalR in Known Limitations) — so "notifying the partner" today
+  means the next time their app syncs or they open/refresh the Home screen, not an OS-level push.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.
@@ -181,7 +198,8 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
   browser-based client exists.
 - No rate limiting on `/api/auth/*` yet — includes forgot-password, which could otherwise be
   used to spam an inbox.
-- SignalR isn't wired up yet (Phase 6).
+- SignalR isn't wired up yet (Phase 6) — Miss Me's "notify the partner" is therefore next-sync/
+  next-app-open, not a real push notification.
 - No server-side reminder scheduling — `CalendarEvent.ReminderAt` is stored but nothing acts on
   it yet; actual notification delivery is Phase 6.
 - A short-lived (≤15 min) access token issued just before a password reset stays cryptographically

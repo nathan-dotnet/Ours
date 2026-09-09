@@ -69,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<CoupleService>();
         services.AddScoped<SyncService>();
         services.AddScoped<VaultService>();
+        services.AddScoped<MissMeService>();
 
         return services;
     }

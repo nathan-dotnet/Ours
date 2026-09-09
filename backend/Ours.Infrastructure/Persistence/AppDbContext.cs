@@ -19,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<VaultItem> VaultItems => Set<VaultItem>();
+    public DbSet<MissMeInteraction> MissMeInteractions => Set<MissMeInteraction>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
