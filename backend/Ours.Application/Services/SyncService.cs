@@ -43,12 +43,23 @@ public class SyncService(
         var couple = await db.Couples.FirstOrDefaultAsync(c => c.Id == coupleId, ct);
         if (couple is not null && (since is null || couple.UpdatedAt > since))
         {
+            // Membership (who's actually in the couple right now) is included here rather than
+            // synced as its own entity — it's the only way the *other* partner's device learns
+            // a join happened, since it has nothing of its own to push or poll for that.
+            var members = couple.IsDeleted
+                ? null
+                : await db.CoupleMembers
+                    .Where(m => m.CoupleId == couple.Id && m.LeftAt == null)
+                    .Include(m => m.User)
+                    .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt })
+                    .ToListAsync(ct);
+
             changes.Add(new SyncChangeDto
             {
                 EntityType = CoupleProfileEntityType,
                 EntityId = couple.Id,
                 Operation = couple.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
-                Payload = couple.IsDeleted ? null : new CoupleProfilePayloadDto { Nickname = couple.Nickname, AnniversaryDate = couple.AnniversaryDate },
+                Payload = couple.IsDeleted ? null : new CoupleProfilePayloadDto { Nickname = couple.Nickname, AnniversaryDate = couple.AnniversaryDate, Members = members },
                 UpdatedAt = couple.UpdatedAt,
                 UpdatedByUserId = couple.UpdatedByUserId,
                 Version = couple.Version,

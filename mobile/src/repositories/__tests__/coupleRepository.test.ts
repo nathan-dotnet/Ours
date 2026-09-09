@@ -98,6 +98,35 @@ describe('coupleRepository', () => {
     expect(couple).toMatchObject({ nickname: 'From Partner', updated_by_user_id: 'user-bob', version: 2 });
   });
 
+  it('applyRemoteProfileChange with a members list adds a partner who just joined — the "waiting for your partner" bug', async () => {
+    // Alice's own device, right after she creates the couple: only she is a local member yet.
+    await coupleRepository.upsertFromServer({ ...serverCouple, members: [serverCouple.members[0]] });
+    expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(1);
+
+    // Bob joins; Alice's next sync pull delivers the couple_profile change the server now
+    // includes his membership in (see backend SyncService.PullAsync).
+    await coupleRepository.applyRemoteProfileChange(
+      'couple-1',
+      { nickname: null, anniversaryDate: null, members: serverCouple.members },
+      '2026-01-02T00:00:00.000Z',
+      'user-bob',
+      2,
+    );
+
+    const members = await coupleRepository.getLocalMembers('couple-1');
+    expect(members.map((m) => m.display_name).sort()).toEqual(['Alice', 'Bob']);
+  });
+
+  it('applyRemoteProfileChange without a members field leaves existing local membership untouched', async () => {
+    // A push-originated echo (e.g. this device's own nickname edit reflected back) never carries
+    // members — must not wipe out membership that's already correct locally.
+    await coupleRepository.upsertFromServer(serverCouple);
+
+    await coupleRepository.applyRemoteProfileChange('couple-1', { nickname: 'Us Two', anniversaryDate: null }, '2026-02-01T00:00:00.000Z', 'user-alice', 2);
+
+    expect(await coupleRepository.getLocalMembers('couple-1')).toHaveLength(2);
+  });
+
   it('applyRemoteProfileChange with a null payload fully removes the couple (not just the couples row)', async () => {
     await coupleRepository.upsertFromServer(serverCouple);
     await calendarEventRepository.createLocally(

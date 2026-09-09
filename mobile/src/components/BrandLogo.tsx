@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import { getAccountBrand } from '../utils/accountBrand';
 
 interface BrandLogoProps {
@@ -7,22 +7,20 @@ interface BrandLogoProps {
   size?: number;
 }
 
-/** A known institution renders as a colored wordmark badge in that brand's real color (see accountBrand.ts); anything else falls back to a plain emoji. */
+/** A known institution renders as its real logo image (see accountBrand.ts); anything else falls back to a plain emoji. */
 export function BrandLogo({ icon, accountType, size = 40 }: BrandLogoProps) {
   const brand = getAccountBrand(icon, accountType);
 
-  if (!brand.isKnownBrand) {
+  if (!brand.isKnownBrand || !brand.logo) {
     return <Text style={{ fontSize: size * 0.7 }}>{brand.emoji}</Text>;
   }
 
   return (
     <View
-      style={{ width: size, height: size, backgroundColor: brand.backgroundColor, borderRadius: size * 0.28 }}
-      className="items-center justify-center"
+      style={{ width: size, height: size, borderRadius: size * 0.28, overflow: 'hidden' }}
+      className="items-center justify-center bg-blush"
     >
-      <Text style={{ color: brand.textColor, fontSize: brand.wordmark.length > 3 ? size * 0.24 : size * 0.32 }} className="font-bold" numberOfLines={1}>
-        {brand.wordmark}
-      </Text>
+      <Image source={brand.logo} style={{ width: size, height: size }} resizeMode="contain" accessibilityLabel={brand.label} />
     </View>
   );
 }

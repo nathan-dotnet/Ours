@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Ours.Api.Tests.Infrastructure;
 using Ours.Application.DTOs.Auth;
 using Ours.Application.DTOs.Couples;
@@ -95,6 +96,43 @@ public class AuthAndCoupleFlowTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(HttpStatusCode.OK, pullResponse.StatusCode);
         var pullResult = (await pullResponse.Content.ReadFromJsonAsync<SyncPullResponseDto>())!;
         Assert.Single(pullResult.Changes);
+    }
+
+    [Fact]
+    public async Task CreatorLearnsAboutTheJoin_OnHerNextOrdinarySyncPull()
+    {
+        // Regression test: joining used to never touch Couple.UpdatedAt/Version at all, so the
+        // creator's device had no signal a partner had joined — PullAsync's change detection
+        // (UpdatedAt > since) never fired, and she'd be stuck seeing "waiting for your partner"
+        // indefinitely even after the join had actually succeeded.
+        var client = _factory.CreateClient();
+        var alice = await RegisterAsync(client, "alice-join-signal@flow.test", "Alice");
+        var bob = await RegisterAsync(client, "bob-join-signal@flow.test", "Bob");
+
+        Authorize(client, alice.AccessToken);
+        var created = (await (await client.PostAsync("/api/couples", null)).Content.ReadFromJsonAsync<CoupleActionResponseDto>())!;
+
+        // Alice establishes a pull cursor *before* Bob joins — exactly what her app does on
+        // every ordinary sync tick while she's alone, waiting.
+        Authorize(client, created.Auth.AccessToken);
+        var firstPull = (await (await client.GetAsync("/api/sync/pull")).Content.ReadFromJsonAsync<SyncPullResponseDto>())!;
+        var cursor = firstPull.ServerTime;
+
+        Authorize(client, bob.AccessToken);
+        await client.PostAsJsonAsync("/api/couples/join", new JoinCoupleRequestDto { InviteCode = created.Couple.InviteCode });
+
+        // Alice's next pull, using the cursor from before the join, must now see a change.
+        Authorize(client, created.Auth.AccessToken);
+        var secondPull = (await (await client.GetAsync($"/api/sync/pull?since={Uri.EscapeDataString(cursor.ToString("O"))}"))
+            .Content.ReadFromJsonAsync<SyncPullResponseDto>())!;
+
+        var change = Assert.Single(secondPull.Changes);
+        Assert.Equal("couple_profile", change.EntityType);
+        var payload = ((JsonElement)change.Payload!).Deserialize<CoupleProfilePayloadDto>(
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(payload!.Members);
+        Assert.Equal(2, payload.Members!.Count);
+        Assert.Contains(payload.Members, m => m.DisplayName == "Bob");
     }
 
     [Fact]

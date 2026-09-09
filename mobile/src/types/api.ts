@@ -46,6 +46,13 @@ export interface LeaveCoupleResponseDto {
 export interface CoupleProfilePayload {
   nickname: string | null;
   anniversaryDate: string | null;
+  /**
+   * Server-authoritative current membership — only ever present on a *pulled* change (the server
+   * populates it in SyncService.PullAsync; a push never sets or needs it). This is what lets a
+   * partner's device learn "someone joined" at all, since a join is otherwise invisible to it —
+   * see coupleRepository.applyRemoteProfileChange.
+   */
+  members?: CoupleMemberDto[];
 }
 
 /** Shape of the "calendar_event" sync payload — mirrors the backend's CalendarEventPayloadDto. */

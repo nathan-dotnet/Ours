@@ -20,6 +20,16 @@ public sealed class CoupleProfilePayloadDto
     public string? Nickname { get; init; }
 
     public DateOnly? AnniversaryDate { get; init; }
+
+    /// <summary>
+    /// Server-authoritative, populated only in <see cref="Services.SyncService.PullAsync"/> —
+    /// a client push never sets or influences this; membership only ever changes through
+    /// Create/Join/Leave, never through a couple_profile edit. Included here (rather than a
+    /// separate synced entity) specifically so that when a partner joins, the *other* partner's
+    /// device — which has no other way to learn about it, since it can't push or poll for a new
+    /// member — picks up the change on its next ordinary sync pull.
+    /// </summary>
+    public IReadOnlyList<CoupleMemberDto>? Members { get; init; }
 }
 
 public sealed class CoupleMemberDto

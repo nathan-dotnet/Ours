@@ -98,6 +98,15 @@ public class CoupleService(
         db.CoupleMembers.Add(membership);
         user.CoupleId = couple.Id;
 
+        // Without this, the creating partner's device has no signal that anything changed at
+        // all: SyncService.PullAsync only surfaces a couple_profile change when UpdatedAt moves
+        // past their last cursor, and a join otherwise touches no field on Couple itself — they'd
+        // be stuck seeing "waiting for your partner" indefinitely even after the other side
+        // successfully joined, since there's nothing for them to push or poll for on their own.
+        couple.UpdatedAt = now;
+        couple.UpdatedByUserId = user.Id;
+        couple.Version += 1;
+
         await db.SaveChangesAsync(ct);
 
         // EF's change-tracker fixup already appended `membership` to the loaded couple.Members

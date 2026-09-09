@@ -1,6 +1,6 @@
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from '../sync/syncQueue';
-import type { CoupleDto } from '../types/api';
+import type { CoupleDto, CoupleMemberDto } from '../types/api';
 import type { Couple, CoupleMember } from '../types/entities';
 
 export interface CoupleProfileEdit {
@@ -9,6 +9,17 @@ export interface CoupleProfileEdit {
 }
 
 const COUPLE_PROFILE_ENTITY_TYPE = 'couple_profile';
+
+/** Shared by upsertFromServer and applyRemoteProfileChange — both fully replace local membership from an authoritative server list. */
+async function replaceLocalMembers(db: Awaited<ReturnType<typeof getDatabase>>, coupleId: string, members: CoupleMemberDto[]): Promise<void> {
+  await db.runAsync(`DELETE FROM couple_members WHERE couple_id = ?`, [coupleId]);
+  for (const member of members) {
+    await db.runAsync(
+      `INSERT INTO couple_members (id, couple_id, user_id, display_name, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      [`${coupleId}:${member.userId}`, coupleId, member.userId, member.displayName, member.joinedAt],
+    );
+  }
+}
 
 /**
  * Repository for the one Phase-1 feature table pair (couples/couple_members). The pattern
@@ -56,20 +67,23 @@ export const coupleRepository = {
         ],
       );
 
-      await db.runAsync(`DELETE FROM couple_members WHERE couple_id = ?`, [dto.id]);
-      for (const member of dto.members) {
-        await db.runAsync(
-          `INSERT INTO couple_members (id, couple_id, user_id, display_name, joined_at) VALUES (?, ?, ?, ?, ?)`,
-          [`${dto.id}:${member.userId}`, dto.id, member.userId, member.displayName, member.joinedAt],
-        );
-      }
+      await replaceLocalMembers(db, dto.id, dto.members);
     });
   },
 
-  /** Applies a "couple_profile" change pulled from /api/sync/pull. The server has already resolved any conflict — this just mirrors its result. */
+  /**
+   * Applies a "couple_profile" change pulled from /api/sync/pull. The server has already
+   * resolved any conflict — this just mirrors its result.
+   *
+   * `payload.members`, when present, is what lets this device learn about a partner joining (or
+   * the membership otherwise changing) at all — a join touches nothing this device could
+   * otherwise push or poll for, so without replaying the server's member list here, a device
+   * that's waiting for a partner would stay stuck showing no partner even after one had actually
+   * joined. See SyncService.PullAsync (backend) for where `members` gets populated.
+   */
   async applyRemoteProfileChange(
     coupleId: string,
-    payload: { nickname: string | null; anniversaryDate: string | null } | null,
+    payload: { nickname: string | null; anniversaryDate: string | null; members?: CoupleMemberDto[] } | null,
     updatedAt: string,
     updatedByUserId: string,
     version: number,
@@ -86,6 +100,9 @@ export const coupleRepository = {
       `UPDATE couples SET nickname = ?, anniversary_date = ?, updated_at = ?, updated_by_user_id = ?, version = ? WHERE id = ?`,
       [payload.nickname, payload.anniversaryDate, updatedAt, updatedByUserId, version, coupleId],
     );
+    if (payload.members) {
+      await replaceLocalMembers(db, coupleId, payload.members);
+    }
   },
 
   /**
