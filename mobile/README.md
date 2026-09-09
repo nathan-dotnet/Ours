@@ -8,17 +8,19 @@ app/                      Expo Router routes
   (auth)/                 login, register, forgot-password
   reset-password.tsx      top-level (not inside (auth)) — see "Deep linking" below
   (onboarding)/           create-couple, join-couple (online-only, like leaving one — see below)
-  (tabs)/                 Home, Calendar, Money, Settings — the main app
+  (tabs)/                 Home, Calendar, Money, Vault, Settings — the main app
   calendar/               new / [id] — create + edit event modals
   accounts/                new / [id] — create account + account detail/edit/deactivate
   transactions/            new / [id] — add (Expense/Income/Transfer) + edit/delete
   budgets/                 new / [id] — create + edit/delete a monthly category budget
+  vault/                   new / [id] — add + view/edit/delete/reveal a shared password
 src/
   database/                SQLite open + migrations (schema.ts, migrations.ts, db.ts)
   repositories/            read/write SQLite, enqueue sync ops (coupleRepository.ts, calendarEventRepository.ts,
-                           accountRepository.ts, transactionRepository.ts, budgetRepository.ts)
+                           accountRepository.ts, transactionRepository.ts, budgetRepository.ts, vaultRepository.ts)
   sync/                    sync_queue repository + push/pull engine, reused by every feature
-  services/                API client (with auto token-refresh), connectivity (NetInfo), biometricAuth.ts
+  services/                API client (with auto token-refresh), connectivity (NetInfo), biometricAuth.ts,
+                           vaultAuth.ts (reveal's local-auth gate), vaultReveal.ts (reveal/copy)
   stores/                  Zustand: auth session (+ biometric gate), sync status
   hooks/                   React Query + action hooks tying the above together for screens
   components/, types/, validation/, utils/
@@ -144,6 +146,38 @@ progress) reads through instead of computing its own arithmetic:
 - Leaving a couple's cleanup (`removeLocalCoupleAndData`) removes a couple's accounts,
   transactions, and budgets the same way it already removed calendar events — see below.
 
+## Vault (shared encrypted passwords)
+
+`vaultRepository.ts` follows the same offline-first shape as every other feature, with one
+deliberate exception: `createLocally`/`updateLocally` never write into
+`encrypted_password`/`nonce`/`auth_tag`/`key_version` — this device has no way to compute them
+(only the backend holds the AES-256-GCM key; see `backend/README.md`'s Vault section). Those
+columns stay `NULL` locally until the next successful pull round-trips the server's own encrypted
+representation back down via `applyRemoteChange` — the *only* place they're ever written. SQLite
+never has a plaintext password column, on this device or any other; `src/database/schema.ts`'s
+migration comment says so explicitly.
+
+- **The plaintext password only ever exists in two places, both transient**: the sync_queue
+  payload on create/update (sent once over HTTPS, encrypted server-side, then the queue row is
+  discarded once pushed — the same brief exposure window every other offline-queued write has),
+  and the in-memory return value of `services/vaultReveal.ts`'s `revealVaultPassword()`, which the
+  caller (`app/vault/[id].tsx`) lets go out of scope as soon as it's shown or copied. Nothing here
+  is ever passed to `console.*` or an `Alert` with the password in it.
+- **Reveal/copy require both connectivity and a fresh local authentication check** —
+  `revealVaultPassword()`/`copyVaultPassword()` check `getIsOnline()` first (decrypting is
+  inherently a server round trip; this device never holds the key) and then
+  `services/vaultAuth.ts`'s `authenticateToRevealPassword()`, a direct
+  `expo-local-authentication` call — deliberately *not* `biometricAuth.ts`'s login flow, since
+  this isn't restoring a session, just proving "you're the person holding this device right now"
+  before decrypting one password. `disableDeviceFallback: false` (the default) is what gives the
+  device-passcode fallback for free when biometrics aren't set up.
+- **Copy auto-clears the clipboard** after `CLIPBOARD_CLEAR_MS` (30s) — but only if the clipboard
+  still holds exactly what was copied, so it never clobbers something the user copied afterward.
+- **Password generation** (`utils/passwordGenerator.ts`) never uses `Math.random()` — it draws
+  from `expo-crypto`'s `getRandomBytes` (the platform CSPRNG) via rejection sampling, which is
+  what keeps every character equally likely (a plain `byte % alphabetLength` would be measurably
+  biased toward smaller indices for almost any alphabet size).
+
 ## Authentication: password reset + biometric login
 
 - **Forgot/reset password**: `app/(auth)/forgot-password.tsx` calls `POST /api/auth/forgot-password`
@@ -176,7 +210,8 @@ state, so the app never pretends a destructive cross-user change succeeded when 
 confirmed it.
 
 On a confirmed success, `coupleRepository.removeLocalCoupleAndData()` removes the couple, its
-membership rows, its calendar events, and its Money data (accounts, transactions, budgets) — and discards any not-yet-synced `sync_queue` entry for
+membership rows, its calendar events, its Money data (accounts, transactions, budgets), and its
+vault items — and discards any not-yet-synced `sync_queue` entry for
 that data too, so a pending offline edit/create from before leaving can never get pushed under
 whatever couple this device joins next (the server derives a push's couple from the *current*
 token, not from whenever the change was queued). `authStore.clearCoupleId()` then patches the
@@ -221,3 +256,10 @@ leaver's own device and the partner's, rather than two.
   institutions' actual trademarked artwork — bundling or fetching real logo image files was out of
   scope ("no external image URLs", "no remote logo API"); this is the closest static, local,
   license-safe equivalent. Swap in real bundled image assets later if that's wanted instead.
+- Vault reveal/copy are online-only by design (decrypting requires the backend's key) — an item
+  created or edited offline can't have its password revealed until it's actually synced at least
+  once, since the server has nothing to decrypt from before that. Title/username/website/category/
+  notes remain fully visible and editable offline regardless.
+- The vault list's 👁 icon on each card is a static hint that reveal is available on that item —
+  actual reveal (with its authentication gate) only happens on the item's own detail screen, not
+  inline in the list, to avoid needing per-row auth state.

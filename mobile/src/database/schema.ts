@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -191,4 +191,38 @@ export const MIGRATION_V5 = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_budgets_couple_id_year_month ON budgets (couple_id, year, month);
+`;
+
+/**
+ * Statements applied when moving from schema version 5 -> 6: adds the Vault (shared encrypted
+ * password items). `encrypted_password`/`nonce`/`auth_tag` are base64 TEXT — SQLite has no
+ * dedicated binary column type, and the app never operates on these bytes directly anyway (only
+ * the server ever holds the decryption key — see backend/README.md's Vault section). They're
+ * nullable because a device that created or edited an item offline has no way to compute them
+ * itself; they're only ever populated once by applyRemoteChange, from the server's own encrypted
+ * representation on the next successful pull — see vaultRepository.ts. This table NEVER has a
+ * plaintext password column, on this device or any other.
+ */
+export const MIGRATION_V6 = `
+  CREATE TABLE IF NOT EXISTS vault_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    username TEXT,
+    encrypted_password TEXT,
+    nonce TEXT,
+    auth_tag TEXT,
+    key_version INTEGER,
+    website_url TEXT,
+    category TEXT NOT NULL,
+    notes TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vault_items_couple_id ON vault_items (couple_id);
 `;

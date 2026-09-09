@@ -127,12 +127,14 @@ export const coupleRepository = {
     const accounts = await db.getAllAsync<{ id: string }>(`SELECT id FROM accounts WHERE couple_id = ?`, [coupleId]);
     const transactions = await db.getAllAsync<{ id: string }>(`SELECT id FROM money_transactions WHERE couple_id = ?`, [coupleId]);
     const budgets = await db.getAllAsync<{ id: string }>(`SELECT id FROM budgets WHERE couple_id = ?`, [coupleId]);
+    const vaultItems = await db.getAllAsync<{ id: string }>(`SELECT id FROM vault_items WHERE couple_id = ?`, [coupleId]);
     const queuedEntityIds = [
       coupleId,
       ...events.map((e) => e.id),
       ...accounts.map((a) => a.id),
       ...transactions.map((t) => t.id),
       ...budgets.map((b) => b.id),
+      ...vaultItems.map((v) => v.id),
     ];
 
     await db.withTransactionAsync(async () => {
@@ -147,6 +149,7 @@ export const coupleRepository = {
       await db.runAsync(`DELETE FROM money_transactions WHERE couple_id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM accounts WHERE couple_id = ?`, [coupleId]);
       await db.runAsync(`DELETE FROM budgets WHERE couple_id = ?`, [coupleId]);
+      await db.runAsync(`DELETE FROM vault_items WHERE couple_id = ?`, [coupleId]);
     });
   },
 

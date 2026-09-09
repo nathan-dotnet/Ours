@@ -3,10 +3,11 @@ import { budgetRepository, BUDGET_ENTITY_TYPE } from '../repositories/budgetRepo
 import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
 import { transactionRepository, TRANSACTION_ENTITY_TYPE } from '../repositories/transactionRepository';
+import { vaultRepository, VAULT_ITEM_ENTITY_TYPE } from '../repositories/vaultRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
-import type { AccountPayload, BudgetPayload, CalendarEventPayload, CoupleProfilePayload, TransactionPayload } from '../types/api';
+import type { AccountPayload, BudgetPayload, CalendarEventPayload, CoupleProfilePayload, TransactionPayload, VaultItemPayload } from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from './syncQueue';
@@ -130,6 +131,18 @@ async function pullRemote(): Promise<void> {
         coupleId,
         change.entityId,
         change.payload as BudgetPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === VAULT_ITEM_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      // The payload here only ever carries the already-encrypted representation (see
+      // VaultItemPayload's doc comment) — nothing plaintext ever passes through this loop.
+      await vaultRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as VaultItemPayload | null,
         change.updatedAt,
         change.updatedByUserId,
         change.version,

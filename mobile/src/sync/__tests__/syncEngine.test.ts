@@ -4,6 +4,7 @@ import { budgetRepository } from '../../repositories/budgetRepository';
 import { calendarEventRepository } from '../../repositories/calendarEventRepository';
 import { coupleRepository } from '../../repositories/coupleRepository';
 import { transactionRepository } from '../../repositories/transactionRepository';
+import { vaultRepository } from '../../repositories/vaultRepository';
 import { useAuthStore } from '../../stores/authStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { runSync } from '../syncEngine';
@@ -315,6 +316,108 @@ describe('runSync', () => {
     await runSync();
 
     expect(await budgetRepository.getById(budgetId)).toBeNull();
+  });
+
+  it('applies a pulled vault_item change to SQLite, storing only the encrypted representation', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+
+    const itemId = 'vault-item-1';
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'vault_item',
+            entityId: itemId,
+            operation: 'UPDATE',
+            payload: {
+              title: 'Netflix',
+              username: 'alice@example.com',
+              websiteUrl: 'https://netflix.com',
+              category: 'Streaming',
+              notes: null,
+              encryptedPassword: 'Y2lwaGVydGV4dA==',
+              nonce: 'bm9uY2U=',
+              authTag: 'dGFn',
+              keyVersion: 1,
+              createdByUserId: 'user-bob',
+            },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-bob',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    const stored = await vaultRepository.getById(itemId);
+    expect(stored).toMatchObject({ title: 'Netflix', couple_id: coupleId, created_by_user_id: 'user-bob', encrypted_password: 'Y2lwaGVydGV4dA==' });
+  });
+
+  it('a vault_item change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {
+    const coupleId = 'couple-1';
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId },
+    } as never);
+    await coupleRepository.upsertFromServer({
+      id: coupleId,
+      inviteCode: 'OURS-TEST',
+      nickname: null,
+      anniversaryDate: null,
+      updatedAt: '2025-12-01T00:00:00.000Z',
+      updatedByUserId: 'user-1',
+      version: 1,
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+    });
+    const itemId = 'vault-item-1';
+
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse({
+        serverTime: '2026-01-01T00:00:00.000Z',
+        changes: [
+          {
+            entityType: 'couple_profile',
+            entityId: coupleId,
+            operation: 'DELETE',
+            payload: null,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-2',
+            version: 2,
+          },
+          {
+            entityType: 'vault_item',
+            entityId: itemId,
+            operation: 'UPDATE',
+            payload: {
+              title: 'Should not be resurrected',
+              username: null,
+              websiteUrl: null,
+              category: 'Other',
+              notes: null,
+              encryptedPassword: 'Y2lwaGVydGV4dA==',
+              nonce: 'bm9uY2U=',
+              authTag: 'dGFn',
+              keyVersion: 1,
+              createdByUserId: 'user-1',
+            },
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByUserId: 'user-1',
+            version: 1,
+          },
+        ],
+      }),
+    ) as never;
+
+    await runSync();
+
+    expect(await vaultRepository.getById(itemId)).toBeNull();
   });
 
   it('a calendar_event change for the same now-ended couple in the same pull batch is skipped, not resurrected', async () => {

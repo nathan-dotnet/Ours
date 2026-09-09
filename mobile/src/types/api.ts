@@ -157,3 +157,34 @@ export interface ApiErrorBody {
 export interface MessageResponseDto {
   message: string;
 }
+
+/**
+ * Shape of the "vault_item" sync payload — mirrors the backend's VaultItemPayloadDto. Unlike
+ * every other synced entity, this one isn't symmetric between directions:
+ *  - `password` is push-only — the new plaintext value, sent once over HTTPS only when the user
+ *    is setting/changing it (omitted on an edit that leaves the password alone). Never present
+ *    on a pulled change; this device never has any use for a plaintext password beyond the
+ *    instant it takes to send it, since it never decrypts anything itself.
+ *  - `encryptedPassword`/`nonce`/`authTag`/`keyVersion` are pull-only — the server's already-
+ *    encrypted representation (base64), stored as-is in SQLite (see vaultRepository.ts) and never
+ *    decrypted on-device — see api.ts's revealVaultPassword for the only way plaintext ever comes
+ *    back, and only for the instant it's shown/copied.
+ */
+export interface VaultItemPayload {
+  title: string;
+  username: string | null;
+  password?: string | null;
+  websiteUrl: string | null;
+  category: string;
+  notes: string | null;
+  encryptedPassword?: string | null;
+  nonce?: string | null;
+  authTag?: string | null;
+  keyVersion?: number | null;
+  /** Only ever present on a pulled change — the server sets it, a push never needs to. */
+  createdByUserId?: string;
+}
+
+export interface VaultRevealResponseDto {
+  password: string;
+}

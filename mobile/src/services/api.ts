@@ -9,6 +9,7 @@ import type {
   SyncPullResponseDto,
   SyncPushItemDto,
   SyncPushResponseDto,
+  VaultRevealResponseDto,
 } from '../types/api';
 import { env } from '../utils/env';
 
@@ -133,6 +134,14 @@ export const api = {
 
   syncPull: (since: string | null) =>
     request<SyncPullResponseDto>(`/api/sync/pull${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+
+  /**
+   * The one vault action that isn't a sync operation — decrypts a specific item's password
+   * server-side and returns it. Requires connectivity by nature (this device never holds the
+   * decryption key); see useVaultReveal, which also requires a fresh local biometric/passcode
+   * gate before ever calling this.
+   */
+  revealVaultPassword: (id: string) => request<VaultRevealResponseDto>(`/api/vault/${id}/reveal`, { method: 'POST' }),
 
   forgotPassword: (email: string) =>
     request<MessageResponseDto>('/api/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),

@@ -6,8 +6,18 @@ import { budgetRepository } from '../budgetRepository';
 import { calendarEventRepository } from '../calendarEventRepository';
 import { coupleRepository } from '../coupleRepository';
 import { transactionRepository } from '../transactionRepository';
+import { vaultRepository } from '../vaultRepository';
 
 const accountInput = { name: 'BPI', type: 'Bank', icon: 'bpi', currency: 'PHP', isActive: true };
+
+const vaultInput = {
+  title: 'Netflix',
+  username: 'alice@example.com',
+  password: 'correct horse battery staple',
+  websiteUrl: 'https://netflix.com',
+  category: 'Streaming',
+  notes: null,
+};
 
 function transactionInput(accountId: string, overrides: Partial<Parameters<typeof transactionRepository.createLocally>[1]> = {}) {
   return {
@@ -137,6 +147,7 @@ describe('coupleRepository', () => {
     const account = await accountRepository.createLocally('couple-1', accountInput, 0, 'user-alice');
     await transactionRepository.createLocally('couple-1', transactionInput(account.id), 'user-alice');
     await budgetRepository.createLocally('couple-1', budgetInput, 'user-alice');
+    await vaultRepository.createLocally('couple-1', vaultInput, 'user-alice');
 
     await coupleRepository.applyRemoteProfileChange('couple-1', null, '2026-02-01T00:00:00.000Z', 'user-bob', 2);
 
@@ -146,6 +157,7 @@ describe('coupleRepository', () => {
     expect(await accountRepository.getAllForCouple('couple-1')).toHaveLength(0);
     expect(await transactionRepository.getAllForCouple('couple-1')).toHaveLength(0);
     expect(await budgetRepository.getForMonth('couple-1', 2026, 1)).toHaveLength(0);
+    expect(await vaultRepository.getAllForCouple('couple-1')).toHaveLength(0);
   });
 
   describe('removeLocalCoupleAndData', () => {
@@ -159,6 +171,7 @@ describe('coupleRepository', () => {
       const account = await accountRepository.createLocally('couple-1', accountInput, 1000000, 'user-alice');
       await transactionRepository.createLocally('couple-1', transactionInput(account.id, { description: 'Old Couple Dinner' }), 'user-alice');
       await budgetRepository.createLocally('couple-1', budgetInput, 'user-alice');
+      await vaultRepository.createLocally('couple-1', vaultInput, 'user-alice');
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
@@ -168,6 +181,7 @@ describe('coupleRepository', () => {
       expect(await accountRepository.getAllForCouple('couple-1')).toHaveLength(0);
       expect(await transactionRepository.getAllForCouple('couple-1')).toHaveLength(0);
       expect(await budgetRepository.getForMonth('couple-1', 2026, 1)).toHaveLength(0);
+      expect(await vaultRepository.getAllForCouple('couple-1')).toHaveLength(0);
     });
 
     it('discards any not-yet-synced sync_queue entries for the couple — a pending edit/create must not survive into a future couple', async () => {
@@ -185,7 +199,9 @@ describe('coupleRepository', () => {
       const account = await accountRepository.createLocally('couple-1', accountInput, 0, 'user-alice');
       await transactionRepository.createLocally('couple-1', transactionInput(account.id), 'user-alice');
       await budgetRepository.createLocally('couple-1', budgetInput, 'user-alice');
-      expect(await syncQueueRepository.countPending()).toBe(5);
+      // ...and a vault item created offline, never synced.
+      await vaultRepository.createLocally('couple-1', vaultInput, 'user-alice');
+      expect(await syncQueueRepository.countPending()).toBe(6);
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
@@ -209,6 +225,7 @@ describe('coupleRepository', () => {
       const otherAccount = await accountRepository.createLocally('couple-2', { ...accountInput, name: 'GCash' }, 500000, 'user-carol');
       await transactionRepository.createLocally('couple-2', transactionInput(otherAccount.id, { description: 'New Couple Dinner' }), 'user-carol');
       await budgetRepository.createLocally('couple-2', budgetInput, 'user-carol');
+      await vaultRepository.createLocally('couple-2', { ...vaultInput, title: 'New Couple Gmail' }, 'user-carol');
 
       await coupleRepository.removeLocalCoupleAndData('couple-1');
 
@@ -220,6 +237,7 @@ describe('coupleRepository', () => {
       expect(await accountRepository.getAllForCouple('couple-2')).toHaveLength(1);
       expect(await transactionRepository.getAllForCouple('couple-2')).toHaveLength(1);
       expect(await budgetRepository.getForMonth('couple-2', 2026, 1)).toHaveLength(1);
+      expect(await vaultRepository.getAllForCouple('couple-2')).toHaveLength(1);
     });
   });
 });

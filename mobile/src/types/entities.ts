@@ -95,6 +95,33 @@ export interface Budget {
   is_deleted: number;
 }
 
+/**
+ * A shared credential in the couple's vault. Never a plaintext password column — only the
+ * server-encrypted representation (base64 TEXT, since SQLite has no binary type), populated
+ * exclusively by applyRemoteChange from a pull. See utils/vaultAuth.ts + api.ts's
+ * revealVaultPassword for the only way plaintext is ever obtained (a decrypt-on-demand server
+ * call, never a local decrypt — this device never holds the key).
+ */
+export interface VaultItem {
+  id: string;
+  couple_id: string;
+  title: string;
+  username: string | null;
+  encrypted_password: string | null; // base64
+  nonce: string | null; // base64
+  auth_tag: string | null; // base64
+  key_version: number | null;
+  website_url: string | null;
+  category: string;
+  notes: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
 export type SyncOperation = 'CREATE' | 'UPDATE' | 'DELETE';
 export type SyncQueueStatus = 'pending' | 'syncing' | 'failed' | 'synced';
 

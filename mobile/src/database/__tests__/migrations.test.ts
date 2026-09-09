@@ -10,14 +10,16 @@ describe('database migrations', () => {
     const db = await getDatabase();
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(5);
+    expect(version?.user_version).toBe(6);
 
     const tables = await db.getAllAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
     );
     const tableNames = tables.map((t) => t.name);
     expect(tableNames).toEqual(
-      expect.arrayContaining(['sync_queue', 'sync_meta', 'couples', 'couple_members', 'calendar_events', 'accounts', 'money_transactions', 'budgets']),
+      expect.arrayContaining([
+        'sync_queue', 'sync_meta', 'couples', 'couple_members', 'calendar_events', 'accounts', 'money_transactions', 'budgets', 'vault_items',
+      ]),
     );
     // The Phase 3A Expenses-only table is fully superseded, not kept alongside the new ones.
     expect(tableNames).not.toContain('expenses');
@@ -37,7 +39,7 @@ describe('database migrations', () => {
     expect(budgetColumns.map((c) => c.name)).toEqual(expect.arrayContaining(['category', 'year', 'month', 'amount_cents']));
   });
 
-  it('migrates a Phase-1-only database (schema v1) all the way forward to v5 without touching existing tables', async () => {
+  it('migrates a Phase-1-only database (schema v1) all the way forward to v6 without touching existing tables', async () => {
     resetDatabaseHandleForTests();
     const db = await getDatabase();
     // Simulate a device that installed before Phase 2 shipped: roll back to v1 and drop every
@@ -47,8 +49,8 @@ describe('database migrations', () => {
     await migrateDatabase(db);
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(5);
-    for (const table of ['calendar_events', 'accounts', 'money_transactions', 'budgets']) {
+    expect(version?.user_version).toBe(6);
+    for (const table of ['calendar_events', 'accounts', 'money_transactions', 'budgets', 'vault_items']) {
       const found = await db.getFirstAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, [table]);
       expect(found).not.toBeNull();
     }
@@ -59,7 +61,7 @@ describe('database migrations', () => {
     expect(couplesTable).not.toBeNull();
   });
 
-  it('migrates a Phase-2 database (schema v2, no all_day/location columns) forward to v5 additively', async () => {
+  it('migrates a Phase-2 database (schema v2, no all_day/location columns) forward to v6 additively', async () => {
     resetDatabaseHandleForTests();
     const db = await getDatabase();
     // Simulate a device on Phase 2 exactly as shipped: drop back to the v2 column set.
@@ -78,7 +80,7 @@ describe('database migrations', () => {
     await migrateDatabase(db);
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(5);
+    expect(version?.user_version).toBe(6);
     const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(calendar_events)`);
     expect(columns.map((c) => c.name)).toEqual(expect.arrayContaining(['all_day', 'location']));
     const accountsTable = await db.getFirstAsync<{ name: string }>(
@@ -87,7 +89,7 @@ describe('database migrations', () => {
     expect(accountsTable).not.toBeNull();
   });
 
-  it('migrates a real Phase 3A device (schema v4, with the old expenses table) forward to v5: expenses is dropped, Money System tables appear', async () => {
+  it('migrates a real Phase 3A device (schema v4, with the old expenses table) forward to v6: expenses is dropped, Money System tables appear', async () => {
     resetDatabaseHandleForTests();
     const db = await getDatabase();
     // Simulate a device that shipped Phase 3A exactly as it was: recreate the old `expenses`
@@ -111,7 +113,7 @@ describe('database migrations', () => {
     await migrateDatabase(db);
 
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    expect(version?.user_version).toBe(5);
+    expect(version?.user_version).toBe(6);
 
     const expensesTable = await db.getFirstAsync<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
@@ -122,6 +124,31 @@ describe('database migrations', () => {
       const found = await db.getFirstAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, [table]);
       expect(found).not.toBeNull();
     }
+  });
+
+  it('migrates a Phase 3 Money System device (schema v5, no vault_items table) forward to v6 additively', async () => {
+    resetDatabaseHandleForTests();
+    const db = await getDatabase();
+    await db.execAsync('DROP TABLE vault_items; PRAGMA user_version = 5;');
+
+    await migrateDatabase(db);
+
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    expect(version?.user_version).toBe(6);
+    const vaultTable = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vault_items'`,
+    );
+    expect(vaultTable).not.toBeNull();
+    const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(vault_items)`);
+    const columnNames = columns.map((c) => c.name);
+    expect(columnNames).toEqual(expect.arrayContaining(['encrypted_password', 'nonce', 'auth_tag', 'key_version']));
+    // Never a plaintext password column, on this device or any other.
+    expect(columnNames).not.toContain('password');
+    // A pre-existing table from v5 must survive the upgrade untouched.
+    const accountsTable = await db.getFirstAsync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'accounts'`,
+    );
+    expect(accountsTable).not.toBeNull();
   });
 
   it('is idempotent — opening an already-migrated database again is a no-op', async () => {
