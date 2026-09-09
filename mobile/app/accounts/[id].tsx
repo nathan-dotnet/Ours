@@ -10,6 +10,7 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForAccount } from '@/hooks/useTransactions';
 import { useAuthStore } from '@/stores/authStore';
 import { calculateAccountBalance } from '@/utils/moneyCalculations';
+import { softRaised } from '@/styles/neumorphism';
 import { describeTransaction } from '@/utils/moneyActivity';
 import { centsToAmountInput, formatMoney } from '@/utils/money';
 import type { AccountFormValues } from '@/validation/account';
@@ -60,7 +61,7 @@ export default function AccountDetailScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       </Screen>
     );
@@ -138,6 +139,7 @@ export default function AccountDetailScreen() {
                 key={transaction.id}
                 onPress={() => router.push(`/transactions/${transaction.id}`)}
                 className="flex-row items-center justify-between rounded-2xl bg-blush p-4"
+                style={softRaised}
               >
                 <Text className="flex-1 text-base font-semibold text-ink" numberOfLines={1}>
                   {description.icon} {description.title}

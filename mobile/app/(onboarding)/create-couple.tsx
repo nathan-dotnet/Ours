@@ -5,6 +5,7 @@ import { Screen } from '@/components/Screen';
 import { useCoupleActions } from '@/hooks/useCoupleActions';
 import { ApiError } from '@/services/api';
 import type { CoupleActionResponseDto } from '@/types/api';
+import { softRaised } from '@/styles/neumorphism';
 
 export default function CreateCoupleScreen() {
   const { createCouple, finalizeCoupleAction } = useCoupleActions();
@@ -43,7 +44,7 @@ export default function CreateCoupleScreen() {
         {result ? (
           <View className="items-center gap-4">
             <Text className="text-2xl font-semibold text-ink">Share this with your partner</Text>
-            <View className="rounded-2xl bg-blush px-8 py-6">
+            <View className="rounded-2xl bg-blush px-8 py-6" style={softRaised}>
               <Text className="text-center text-3xl font-bold tracking-widest text-rose">{result.couple.inviteCode}</Text>
             </View>
             <Text className="text-center text-clay">

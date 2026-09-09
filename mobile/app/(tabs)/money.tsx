@@ -13,6 +13,7 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForMonth } from '@/hooks/useTransactions';
 import { triggerSync } from '@/sync';
 import { chunkIntoRows, getAccountGridView } from '@/utils/accountGrid';
+import { softRaised, softRaisedSubtle } from '@/styles/neumorphism';
 import {
   calculateAccountBalance,
   calculateBudgetRemaining,
@@ -66,7 +67,7 @@ export default function MoneyScreen() {
   };
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
+    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#5B7FBE" />}>
       <View className="pb-1 pt-4">
         <Text className="text-3xl font-semibold text-ink">💰 Money</Text>
         <Text className="text-sm text-clay">{monthFormatter.format(now)}</Text>
@@ -78,7 +79,7 @@ export default function MoneyScreen() {
 
       {isLoading ? (
         <View className="items-center py-16">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       ) : accountsError ? (
         <View className="mt-8 items-center gap-3">
@@ -96,7 +97,7 @@ export default function MoneyScreen() {
             already owns that empty state.
           */}
           {allAccounts.length > 0 ? (
-            <View className="gap-2 rounded-2xl bg-blush p-4">
+            <View className="gap-2 rounded-2xl bg-blush p-4" style={softRaised}>
               <Text className="text-sm font-semibold text-clay">Total Balance</Text>
               <Text className="text-3xl font-semibold text-ink">{formatMoney(totalBalanceCents, currency)}</Text>
               <Text className="text-xs text-clay">
@@ -112,15 +113,15 @@ export default function MoneyScreen() {
             {allBudgets.length > 0 ? (
               <>
                 <View className="flex-row gap-3">
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3">
+                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
                     <Text className="text-xs text-clay">Spent</Text>
                     <Text className="text-base font-semibold text-ink">{formatMoney(spentThisMonthCents, currency)}</Text>
                   </View>
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3">
+                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
                     <Text className="text-xs text-clay">Budget</Text>
                     <Text className="text-base font-semibold text-ink">{formatMoney(totalBudgetCents, currency)}</Text>
                   </View>
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3">
+                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
                     <Text className="text-xs text-clay">Remaining</Text>
                     <Text className={`text-base font-semibold ${remainingCents < 0 ? 'text-rose' : 'text-ink'}`}>
                       {formatMoney(remainingCents, currency)}
@@ -142,7 +143,7 @@ export default function MoneyScreen() {
                 </View>
               </>
             ) : (
-              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8">
+              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8" style={softRaised}>
                 <Text className="text-lg font-semibold text-ink">No budgets yet</Text>
                 <Text className="text-center text-clay">Set a monthly budget to keep track of your spending.</Text>
               </View>
@@ -163,7 +164,7 @@ export default function MoneyScreen() {
           <View className="gap-2">
             <Text className="text-sm font-semibold text-clay">Accounts</Text>
             {allAccounts.length === 0 ? (
-              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8">
+              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8" style={softRaised}>
                 <Text className="text-lg font-semibold text-ink">Where do you keep your money? ❤️</Text>
                 <Text className="text-center text-clay">Add your first account to get started.</Text>
                 <Button label="Add Account" onPress={() => router.push('/accounts/new')} />
@@ -199,7 +200,7 @@ export default function MoneyScreen() {
                     <View
                       pointerEvents="none"
                       className="absolute inset-x-0 bottom-0 h-16"
-                      style={{ backgroundColor: 'rgba(251,246,242,0.85)' }}
+                      style={{ backgroundColor: 'rgba(234,241,251,0.85)' }}
                     />
                   ) : null}
                 </View>
@@ -219,7 +220,7 @@ export default function MoneyScreen() {
           <View className="gap-2">
             <Text className="text-sm font-semibold text-clay">Recent Transactions</Text>
             {recentActivity.length === 0 ? (
-              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8">
+              <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8" style={softRaised}>
                 <Text className="text-lg font-semibold text-ink">No transactions yet ❤️</Text>
                 <Text className="text-center text-clay">Add an expense, income, or transfer.</Text>
               </View>
@@ -231,6 +232,7 @@ export default function MoneyScreen() {
                       key={`account-${item.id}`}
                       onPress={() => router.push(`/accounts/${item.account.id}`)}
                       className="flex-row items-center gap-3 rounded-2xl bg-blush p-4"
+                      style={softRaised}
                     >
                       <BrandLogo icon={item.account.icon} accountType={item.account.type} size={32} />
                       <View className="flex-1 gap-0.5">
@@ -249,6 +251,7 @@ export default function MoneyScreen() {
                     key={item.id}
                     onPress={() => router.push(`/transactions/${item.transaction.id}`)}
                     className="flex-row items-center justify-between rounded-2xl bg-blush p-4"
+                    style={softRaised}
                   >
                     <View className="flex-1 gap-1 pr-2">
                       <Text className="text-base font-semibold text-ink">

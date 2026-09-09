@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { toLocalDateString } from '@/utils/date';
 import { parseAmountInputToCents } from '@/utils/money';
 import type { ExpenseTransactionFormValues, IncomeTransactionFormValues, TransferTransactionFormValues } from '@/validation/transaction';
+import { softRaised } from '@/styles/neumorphism';
 
 type Kind = 'Expense' | 'Income' | 'Transfer';
 
@@ -46,7 +47,7 @@ export default function NewTransactionScreen() {
         <View className="flex-1 items-center justify-center gap-3">
           <Text className="text-lg font-semibold text-ink">Add an account first</Text>
           <Text className="text-center text-clay">You need at least one account before recording a transaction.</Text>
-          <Pressable onPress={() => router.replace('/accounts/new')} className="rounded-full bg-rose px-5 py-3">
+          <Pressable onPress={() => router.replace('/accounts/new')} className="rounded-full bg-rose px-5 py-3" style={softRaised}>
             <Text className="font-semibold text-cream">Add Account</Text>
           </Pressable>
         </View>
@@ -59,7 +60,12 @@ export default function NewTransactionScreen() {
       <Screen>
         <View className="gap-3 pt-4">
           {KIND_OPTIONS.map((option) => (
-            <Pressable key={option.kind} onPress={() => setKind(option.kind)} className="flex-row items-center gap-3 rounded-2xl bg-blush p-5">
+            <Pressable
+              key={option.kind}
+              onPress={() => setKind(option.kind)}
+              className="flex-row items-center gap-3 rounded-2xl bg-blush p-5"
+              style={softRaised}
+            >
               <Text className="text-2xl">{option.emoji}</Text>
               <Text className="text-lg font-semibold text-ink">{option.label}</Text>
             </Pressable>

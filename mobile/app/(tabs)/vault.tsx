@@ -7,6 +7,7 @@ import { SyncStatusBadge } from '@/components/SyncStatusBadge';
 import { searchVaultItems, useVaultItems } from '@/hooks/useVaultItems';
 import { useLocalCouple } from '@/hooks/useCouple';
 import { triggerSync } from '@/sync';
+import { softRaised, softRaisedAccent } from '@/styles/neumorphism';
 
 const CATEGORY_ICONS: Record<string, string> = {
   Streaming: '🎬',
@@ -40,13 +41,14 @@ export default function VaultScreen() {
   };
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
+    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#5B7FBE" />}>
       <View className="flex-row items-center justify-between pb-1 pt-4">
         <Text className="text-3xl font-semibold text-ink">🔐 Vault</Text>
         <Pressable
           onPress={() => router.push('/vault/new')}
           accessibilityLabel="Add Password"
           className="h-10 w-10 items-center justify-center rounded-full bg-rose"
+          style={softRaisedAccent}
         >
           <Text className="text-xl font-semibold text-cream">+</Text>
         </Pressable>
@@ -61,7 +63,7 @@ export default function VaultScreen() {
           value={query}
           onChangeText={setQuery}
           placeholder="Search passwords…"
-          placeholderTextColor="#8C7A72"
+          placeholderTextColor="#7186A3"
           autoCapitalize="none"
           className="rounded-xl border border-clay/30 px-4 py-3 text-base text-ink"
         />
@@ -69,7 +71,7 @@ export default function VaultScreen() {
 
       {isLoading ? (
         <View className="items-center py-16">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       ) : isError ? (
         <View className="mt-8 items-center gap-3">
@@ -91,7 +93,12 @@ export default function VaultScreen() {
       ) : (
         <View className="mt-4 gap-2">
           {visibleItems.map((item) => (
-            <Pressable key={item.id} onPress={() => router.push(`/vault/${item.id}`)} className="gap-2 rounded-2xl bg-blush p-4">
+            <Pressable
+              key={item.id}
+              onPress={() => router.push(`/vault/${item.id}`)}
+              className="gap-2 rounded-2xl bg-blush p-4"
+              style={softRaised}
+            >
               <View className="flex-row items-center gap-2">
                 <Text className="text-xl">{CATEGORY_ICONS[item.category] ?? '🔐'}</Text>
                 <Text className="text-base font-semibold text-ink">{item.title}</Text>

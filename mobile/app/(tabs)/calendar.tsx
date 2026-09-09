@@ -9,6 +9,7 @@ import { useCalendarEvents } from '@/hooks/useCalendarEvents';
 import { useLocalCouple } from '@/hooks/useCouple';
 import { triggerSync } from '@/sync';
 import { getDatesWithEvents, getEventsForDate } from '@/utils/calendarGrouping';
+import { softRaised } from '@/styles/neumorphism';
 import { isSameLocalDay } from '@/utils/calendarMonth';
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -53,7 +54,7 @@ export default function CalendarScreen() {
   const isToday = isSameLocalDay(selectedDate, today);
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
+    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#5B7FBE" />}>
       <View className="flex-row items-center justify-between pb-4 pt-4">
         <Text className="text-3xl font-semibold text-ink">📅 Calendar</Text>
         <View className="flex-row items-center gap-2">
@@ -68,7 +69,7 @@ export default function CalendarScreen() {
 
       {isLoading ? (
         <View className="items-center py-16">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       ) : isError ? (
         <View className="mt-8 items-center gap-3">
@@ -105,6 +106,7 @@ export default function CalendarScreen() {
                   key={event.id}
                   onPress={() => router.push(`/calendar/${event.id}`)}
                   className="gap-1 rounded-2xl bg-blush p-4"
+                  style={softRaised}
                 >
                   <Text className="text-base font-semibold text-ink">{event.title}</Text>
                   <Text className="text-sm text-clay">{formatRange(event)}</Text>

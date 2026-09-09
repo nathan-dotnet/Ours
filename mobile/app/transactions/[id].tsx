@@ -50,7 +50,7 @@ export default function EditTransactionScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       </Screen>
     );
@@ -139,7 +139,7 @@ export default function EditTransactionScreen() {
           members={members}
           initialValues={{
             amountText: centsToAmountInput(transaction.amount_cents),
-            category: (transaction.category as ExpenseTransactionFormValues['category']) ?? 'Other',
+            category: transaction.category ?? 'Other',
             accountId: transaction.account_id,
             description: transaction.description ?? '',
             transactionDate: fromLocalDateString(transaction.transaction_date),
@@ -158,7 +158,7 @@ export default function EditTransactionScreen() {
           accounts={allAccounts}
           initialValues={{
             amountText: centsToAmountInput(transaction.amount_cents),
-            category: (transaction.category as IncomeTransactionFormValues['category']) ?? 'Other',
+            category: (transaction.category as IncomeTransactionFormValues['category'] | null) ?? 'Other',
             accountId: transaction.account_id,
             description: transaction.description ?? '',
             transactionDate: fromLocalDateString(transaction.transaction_date),

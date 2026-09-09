@@ -1,4 +1,5 @@
 import { ActivityIndicator, Pressable, Text } from 'react-native';
+import { softRaised, softRaisedAccent } from '../styles/neumorphism';
 
 interface ButtonProps {
   label: string;
@@ -17,9 +18,10 @@ export function Button({ label, onPress, loading = false, disabled = false, vari
       onPress={onPress}
       disabled={isDisabled}
       className={`items-center justify-center rounded-2xl px-5 py-4 ${isPrimary ? 'bg-rose' : 'bg-blush'} ${isDisabled ? 'opacity-50' : ''}`}
+      style={isDisabled ? undefined : isPrimary ? softRaisedAccent : softRaised}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? '#FBF6F2' : '#C97C6D'} />
+        <ActivityIndicator color={isPrimary ? '#EAF1FB' : '#5B7FBE'} />
       ) : (
         <Text className={`text-base font-semibold ${isPrimary ? 'text-cream' : 'text-rose'}`}>{label}</Text>
       )}

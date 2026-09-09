@@ -10,6 +10,7 @@ import { useLocalCouple, useUpdateCoupleProfile } from '@/hooks/useCouple';
 import { useAuthStore } from '@/stores/authStore';
 import { triggerSync } from '@/sync';
 import { coupleProfileSchema, type CoupleProfileFormValues } from '@/validation/couple';
+import { softRaised } from '@/styles/neumorphism';
 
 const TODAY_LABEL = new Date().toLocaleDateString(undefined, {
   weekday: 'long',
@@ -58,7 +59,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#C97C6D" />}>
+    <Screen scroll refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#5B7FBE" />}>
       <View className="gap-1 pb-6 pt-4">
         <Text className="text-sm font-medium text-clay">{TODAY_LABEL}</Text>
         <Text className="text-3xl font-semibold text-ink">
@@ -69,7 +70,7 @@ export default function HomeScreen() {
       <SyncStatusBadge />
 
       {isLoading ? null : couple ? (
-        <View className="mt-6 gap-4 rounded-2xl bg-blush p-5">
+        <View className="mt-6 gap-4 rounded-2xl bg-blush p-5" style={softRaised}>
           <View className="flex-row items-center justify-between">
             <Text className="text-lg font-semibold text-ink">Our details</Text>
             {!isEditing && (
@@ -116,7 +117,7 @@ export default function HomeScreen() {
           )}
         </View>
       ) : (
-        <View className="mt-6 rounded-2xl bg-blush p-5">
+        <View className="mt-6 rounded-2xl bg-blush p-5" style={softRaised}>
           <Text className="text-clay">Your couple isn't set up on this device yet — pull to sync once you're online.</Text>
         </View>
       )}

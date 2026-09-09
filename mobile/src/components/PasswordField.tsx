@@ -19,7 +19,7 @@ export function PasswordField({ label, value, onChangeText, placeholder, error }
       <View className={`flex-row items-center rounded-xl border ${error ? 'border-rose' : 'border-clay/30'}`}>
         <TextInput
           className="flex-1 px-4 py-3 text-base text-ink"
-          placeholderTextColor="#8C7A72"
+          placeholderTextColor="#7186A3"
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}

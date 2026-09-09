@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
+import { softRaisedSubtle } from '../styles/neumorphism';
 import { formatMoney } from '../utils/money';
 
 interface BudgetProgressRowProps {
@@ -16,7 +17,7 @@ export function BudgetProgressRow({ category, spentCents, budgetCents, currency,
   const barWidth = Math.min(percent, 100);
 
   return (
-    <Pressable onPress={onPress} className="gap-1.5 rounded-xl bg-blush/60 px-4 py-3">
+    <Pressable onPress={onPress} className="gap-1.5 rounded-xl bg-blush/60 px-4 py-3" style={softRaisedSubtle}>
       <View className="flex-row items-center justify-between">
         <Text className="text-sm font-medium text-ink">{category}</Text>
         <Text className={`text-sm font-medium ${isOverBudget ? 'text-rose' : 'text-clay'}`}>

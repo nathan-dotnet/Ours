@@ -11,7 +11,7 @@ export function TextField({ label, error, ...inputProps }: TextFieldProps) {
       <Text className="text-sm font-medium text-ink">{label}</Text>
       <TextInput
         className={`rounded-xl border px-4 py-3 text-base text-ink ${error ? 'border-rose' : 'border-clay/30'}`}
-        placeholderTextColor="#8C7A72"
+        placeholderTextColor="#7186A3"
         {...inputProps}
       />
       {error ? <Text className="text-xs text-rose">{error}</Text> : null}

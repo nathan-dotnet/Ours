@@ -63,7 +63,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         {!isReady ? (
           <View className="flex-1 items-center justify-center bg-cream">
-            <ActivityIndicator color="#C97C6D" />
+            <ActivityIndicator color="#5B7FBE" />
           </View>
         ) : (
           <RootNavigator isAuthenticated={session !== null && isBiometricGatePassed} hasCouple={hasCouple} />

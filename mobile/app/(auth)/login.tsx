@@ -93,7 +93,7 @@ export default function LoginScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center gap-4">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
           <Text className="text-clay">Unlocking with {biometricLabel(capability?.type ?? 'other')}…</Text>
         </View>
       </Screen>

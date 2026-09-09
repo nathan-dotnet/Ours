@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { DEFAULT_PASSWORD_OPTIONS, generatePassword, type PasswordGeneratorOptions } from '../utils/passwordGenerator';
+import { softRaised } from '../styles/neumorphism';
 import { Button } from './Button';
 
 interface PasswordGeneratorPanelProps {
@@ -53,7 +54,7 @@ export function PasswordGeneratorPanel({ onUsePassword }: PasswordGeneratorPanel
   }
 
   return (
-    <View className="gap-3 rounded-2xl bg-blush/60 p-4">
+    <View className="gap-3 rounded-2xl bg-blush/60 p-4" style={softRaised}>
       <Text className="text-sm font-semibold text-ink">Generate Password</Text>
 
       <View className="rounded-xl bg-cream px-4 py-3">

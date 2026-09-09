@@ -72,7 +72,7 @@ export default function EditEventScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       </Screen>
     );

@@ -7,6 +7,7 @@ import { useDeleteVaultItem, useUpdateVaultItem, useVaultItem } from '@/hooks/us
 import { copyVaultPassword, revealVaultPassword, VaultRevealError } from '@/services/vaultReveal';
 import { useAuthStore } from '@/stores/authStore';
 import type { VaultCategoryValue } from '@/validation/vault';
+import { softRaised, softRaisedSubtle } from '@/styles/neumorphism';
 
 export default function VaultItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -105,7 +106,7 @@ export default function VaultItemDetailScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       </Screen>
     );
@@ -161,16 +162,16 @@ export default function VaultItemDetailScreen() {
 
         <View className="gap-2">
           <Text className="text-sm text-clay">Password</Text>
-          <View className="flex-row items-center justify-between rounded-xl bg-blush p-4">
+          <View className="flex-row items-center justify-between rounded-xl bg-blush p-4" style={softRaisedSubtle}>
             <Text className="flex-1 text-base text-ink" numberOfLines={1}>
               {revealedPassword ?? '••••••••••••••'}
             </Text>
             <Pressable onPress={onReveal} disabled={isRevealing} accessibilityLabel={revealedPassword ? 'Hide password' : 'Reveal password'}>
-              {isRevealing ? <ActivityIndicator color="#C97C6D" /> : <Text className="text-lg">{revealedPassword ? '🙈' : '👁'}</Text>}
+              {isRevealing ? <ActivityIndicator color="#5B7FBE" /> : <Text className="text-lg">{revealedPassword ? '🙈' : '👁'}</Text>}
             </Pressable>
           </View>
           {revealError ? <Text className="text-xs text-rose">{revealError}</Text> : null}
-          <Pressable onPress={onCopy} disabled={isCopying} className="items-center rounded-2xl bg-blush px-5 py-4">
+          <Pressable onPress={onCopy} disabled={isCopying} className="items-center rounded-2xl bg-blush px-5 py-4" style={softRaised}>
             <Text className="text-base font-semibold text-rose">{isCopying ? 'Copying…' : 'Copy Password'}</Text>
           </Pressable>
         </View>
@@ -196,10 +197,10 @@ export default function VaultItemDetailScreen() {
       </View>
 
       <View className="gap-3 pt-6">
-        <Pressable onPress={() => setIsEditing(true)} className="items-center rounded-2xl bg-blush px-5 py-4">
+        <Pressable onPress={() => setIsEditing(true)} className="items-center rounded-2xl bg-blush px-5 py-4" style={softRaised}>
           <Text className="text-base font-semibold text-rose">Edit</Text>
         </Pressable>
-        <Pressable onPress={onDelete} className="items-center rounded-2xl bg-blush px-5 py-4">
+        <Pressable onPress={onDelete} className="items-center rounded-2xl bg-blush px-5 py-4" style={softRaised}>
           <Text className="text-base font-semibold text-rose">Delete</Text>
         </Pressable>
       </View>

@@ -11,6 +11,7 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { biometricLabel, disableBiometricLogin, enableBiometricLogin } from '@/services/biometricAuth';
 import { useAuthStore } from '@/stores/authStore';
 import { triggerSync } from '@/sync';
+import { softRaised } from '@/styles/neumorphism';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -99,13 +100,13 @@ export default function SettingsScreen() {
       </View>
 
       <View className="gap-6">
-        <View className="gap-2 rounded-2xl bg-blush p-5">
+        <View className="gap-2 rounded-2xl bg-blush p-5" style={softRaised}>
           <Text className="text-lg font-semibold text-ink">Account</Text>
           <Text className="text-clay">{user?.displayName}</Text>
           <Text className="text-clay">{user?.email}</Text>
         </View>
 
-        <View className="gap-3 rounded-2xl bg-blush p-5">
+        <View className="gap-3 rounded-2xl bg-blush p-5" style={softRaised}>
           <Text className="text-lg font-semibold text-ink">Couple</Text>
           {partner ? (
             <>
@@ -129,7 +130,7 @@ export default function SettingsScreen() {
         </View>
 
         {data?.couple ? (
-          <View className="gap-3 rounded-2xl bg-blush p-5">
+          <View className="gap-3 rounded-2xl bg-blush p-5" style={softRaised}>
             <Text className="text-lg font-semibold text-ink">Invite code</Text>
             <Text className="text-2xl font-bold tracking-widest text-rose">{data.couple.invite_code}</Text>
             <Button label="Share invite code" variant="secondary" onPress={onShareCode} />
@@ -137,7 +138,7 @@ export default function SettingsScreen() {
         ) : null}
 
         {capability?.available ? (
-          <View className="gap-2 rounded-2xl bg-blush p-5">
+          <View className="gap-2 rounded-2xl bg-blush p-5" style={softRaised}>
             <Text className="text-lg font-semibold text-ink">Security</Text>
             <View className="flex-row items-center justify-between pt-1">
               <View className="flex-1 pr-3">
@@ -153,7 +154,7 @@ export default function SettingsScreen() {
           </View>
         ) : null}
 
-        <View className="gap-3 rounded-2xl bg-blush p-5">
+        <View className="gap-3 rounded-2xl bg-blush p-5" style={softRaised}>
           <Text className="text-lg font-semibold text-ink">Sync</Text>
           <SyncStatusBadge />
           <Button label="Sync now" variant="secondary" onPress={onSyncNow} loading={isSyncing} />

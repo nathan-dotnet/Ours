@@ -5,12 +5,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // A warm, calm palette for a private couples app — not a generic dashboard blue.
-        blush: '#F6E9E6',
-        rose: '#C97C6D',
-        ink: '#2E2A27',
-        clay: '#8C7A72',
-        cream: '#FBF6F2',
+        // Soft Romantic Neumorphism, blue as the couple's favorite color: background and card
+        // surface stay in the same soft powder-blue family (close in value, not high-contrast —
+        // what lets a gentle shadow alone read as "raised" rather than needing a bold fill
+        // change) with a dusty cornflower-blue accent for anything interactive. Semantic names
+        // (blush/rose/ink/clay/cream) are unchanged so every existing className keeps working —
+        // only the hex values moved from warm terracotta to this palette.
+        blush: '#D9E6F8',
+        rose: '#5B7FBE',
+        ink: '#1F2A3C',
+        clay: '#7186A3',
+        cream: '#EAF1FB',
       },
     },
   },

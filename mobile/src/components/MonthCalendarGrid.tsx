@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { chunkIntoRows } from '../utils/accountGrid';
 import { getMonthGridDays, isSameLocalDay } from '../utils/calendarMonth';
+import { softRaised } from '../styles/neumorphism';
 
 const GRID_COLUMNS = 7;
 
@@ -47,7 +48,7 @@ export function MonthCalendarGrid({
   const weeks = chunkIntoRows(days, GRID_COLUMNS);
 
   return (
-    <View className="gap-2 rounded-2xl bg-blush p-3">
+    <View className="gap-2 rounded-2xl bg-blush p-3" style={softRaised}>
       <View className="flex-row items-center justify-between px-1">
         <Pressable onPress={onPrevMonth} hitSlop={8} accessibilityLabel="Previous month">
           <Text className="text-lg text-ink">‹</Text>
