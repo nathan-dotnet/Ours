@@ -30,7 +30,7 @@ public class SyncServiceTests
         await db.SaveChangesAsync();
 
         currentUser.CoupleId = couple.Id;
-        return (new SyncService(db, currentUser, clock), clock, couple, db);
+        return (new SyncService(db, currentUser, clock, TestVaultEncryptionService.Create()), clock, couple, db);
     }
 
     private static SyncPushItemDto CoupleProfilePush(Guid entityId, DateTimeOffset clientUpdatedAt, string nickname) => new()
@@ -431,7 +431,7 @@ public class SyncServiceTests
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid(), CoupleId = Guid.NewGuid() };
         var db = TestDbContextFactory.Create();
-        var service = new SyncService(db, currentUser, new FakeDateTimeProvider());
+        var service = new SyncService(db, currentUser, new FakeDateTimeProvider(), TestVaultEncryptionService.Create());
 
         await Assert.ThrowsAsync<ForbiddenAppException>(() => service.PushAsync(new SyncPushRequestDto
         {
@@ -1144,5 +1144,237 @@ public class SyncServiceTests
         Assert.True(Assert.Single(response.Results).Accepted);
         var transactions = await db.Transactions.ToListAsync();
         Assert.Equal(-400m, MoneyCalculator.CalculateAccountBalance(100m, source, transactions));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Vault
+    // ---------------------------------------------------------------------------------------
+
+    private static SyncPushItemDto VaultItemPush(
+        Guid entityId,
+        DateTimeOffset clientUpdatedAt,
+        string title = "Netflix",
+        string? password = "correct horse battery staple",
+        string category = "Streaming",
+        string operation = SyncOperation.Create) => new()
+    {
+        EntityType = SyncService.VaultItemEntityType,
+        EntityId = entityId,
+        Operation = operation,
+        ClientUpdatedAt = clientUpdatedAt,
+        Payload = JsonSerializer.SerializeToElement(new { title, username = "alice@example.com", password, websiteUrl = "https://netflix.com", category, notes = "Family account" }),
+    };
+
+    [Fact]
+    public async Task PushAsync_CreatesVaultItem_WithClientGeneratedId()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow)] });
+
+        var result = Assert.Single(response.Results);
+        Assert.True(result.Accepted);
+        Assert.Equal(1, result.ServerVersion);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsVaultItemCreate_WithoutAPassword()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(Guid.NewGuid(), clock.UtcNow, password: null)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsVaultItemCreate_WithoutATitle()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(Guid.NewGuid(), clock.UtcNow, title: " ")] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsInvalidVaultCategory()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(Guid.NewGuid(), clock.UtcNow, category: "NotACategory")] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_NeverStoresThePasswordAsPlaintext()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow, password: "correct horse battery staple")] });
+
+        var stored = await db.VaultItems.FirstAsync(v => v.Id == itemId);
+        var storedBytesAsText = System.Text.Encoding.Latin1.GetString(stored.EncryptedPassword);
+        Assert.DoesNotContain("correct horse battery staple", storedBytesAsText);
+        Assert.NotEmpty(stored.Nonce);
+        Assert.NotEmpty(stored.AuthTag);
+    }
+
+    [Fact]
+    public async Task PushAsync_UpdatingOtherFieldsWithoutAPassword_LeavesTheEncryptedPasswordUntouched()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow, password: "original-password")] });
+        var afterCreate = await db.VaultItems.FirstAsync(v => v.Id == itemId);
+        var originalCiphertext = afterCreate.EncryptedPassword.ToArray();
+        var originalNonce = afterCreate.Nonce.ToArray();
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [VaultItemPush(itemId, clock.UtcNow, title: "Netflix (renamed)", password: null, operation: SyncOperation.Update)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var afterUpdate = await db.VaultItems.FirstAsync(v => v.Id == itemId);
+        Assert.Equal("Netflix (renamed)", afterUpdate.Title);
+        Assert.Equal(originalCiphertext, afterUpdate.EncryptedPassword);
+        Assert.Equal(originalNonce, afterUpdate.Nonce);
+    }
+
+    [Fact]
+    public async Task PushAsync_ChangingThePassword_ReplacesTheEncryptedValue()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow, password: "old-password")] });
+        var afterCreate = await db.VaultItems.FirstAsync(v => v.Id == itemId);
+        var originalCiphertext = afterCreate.EncryptedPassword.ToArray();
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [VaultItemPush(itemId, clock.UtcNow, password: "new-password", operation: SyncOperation.Update)],
+        });
+
+        var afterUpdate = await db.VaultItems.FirstAsync(v => v.Id == itemId);
+        Assert.NotEqual(originalCiphertext, afterUpdate.EncryptedPassword);
+    }
+
+    [Fact]
+    public async Task PushAsync_SoftDeletesVaultItem_AndItSurfacesAsATombstoneOnPull()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow)] });
+
+        var deleteResponse = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.VaultItemEntityType,
+                    EntityId = itemId,
+                    Operation = SyncOperation.Delete,
+                    ClientUpdatedAt = clock.UtcNow.AddMinutes(1),
+                    Payload = JsonSerializer.SerializeToElement<object?>(null),
+                },
+            ],
+        });
+        Assert.True(Assert.Single(deleteResponse.Results).Accepted);
+
+        var pulled = await service.PullAsync(since: null);
+        var change = Assert.Single(pulled.Changes, c => c.EntityId == itemId);
+        Assert.Equal(SyncOperation.Delete, change.Operation);
+        Assert.Null(change.Payload);
+    }
+
+    [Fact]
+    public async Task PullAsync_NeverIncludesThePlaintextPassword_OnlyTheEncryptedRepresentation()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow, password: "correct horse battery staple")] });
+
+        var pulled = await service.PullAsync(since: null);
+
+        var change = Assert.Single(pulled.Changes, c => c.EntityId == itemId);
+        var payload = Assert.IsType<Ours.Application.DTOs.Vault.VaultItemPayloadDto>(change.Payload);
+        Assert.Null(payload.Password);
+        Assert.NotNull(payload.EncryptedPassword);
+        Assert.NotNull(payload.Nonce);
+        Assert.NotNull(payload.AuthTag);
+        Assert.Equal(1, payload.KeyVersion);
+        // Also assert the whole payload, serialized as the API actually would, never contains the plaintext.
+        var serialized = JsonSerializer.Serialize(payload);
+        Assert.DoesNotContain("correct horse battery staple", serialized);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsVaultItemFromAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow)] });
+
+        var otherCouple = new Couple { Id = Guid.NewGuid(), InviteCode = "OURS-VLT2", CreatedByUserId = Guid.NewGuid(), UpdatedByUserId = Guid.NewGuid(), Version = 1 };
+        db.Couples.Add(otherCouple);
+        await db.SaveChangesAsync();
+        currentUser.CoupleId = otherCouple.Id;
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [VaultItemPush(itemId, clock.UtcNow.AddMinutes(1), title: "Hijacked", operation: SyncOperation.Update)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsVaultMutations_WhenTheCallersCoupleHasEnded()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        couple.IsDeleted = true;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ForbiddenAppException>(() => service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [VaultItemPush(Guid.NewGuid(), clock.UtcNow)],
+        }));
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsStaleVaultItemUpdate()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var itemId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [VaultItemPush(itemId, clock.UtcNow)] });
+
+        var staleTimestamp = clock.UtcNow.AddMinutes(-10);
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [VaultItemPush(itemId, staleTimestamp, title: "Too late", password: null, operation: SyncOperation.Update)],
+        });
+
+        var result = Assert.Single(response.Results);
+        Assert.False(result.Accepted);
+        Assert.Equal("stale_write", result.Error);
     }
 }

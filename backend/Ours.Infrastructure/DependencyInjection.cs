@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+        services.Configure<VaultEncryptionOptions>(configuration.GetSection(VaultEncryptionOptions.SectionName));
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -53,6 +54,8 @@ public static class DependencyInjection
         services.AddSingleton<IInviteCodeGenerator, InviteCodeGenerator>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IIdentityService, IdentityService>();
+        // Singleton: holds only the parsed key material from configuration, no per-request state.
+        services.AddSingleton<IVaultEncryptionService, VaultEncryptionService>();
 
         services.AddScoped<IEmailService>(sp =>
         {
@@ -65,6 +68,7 @@ public static class DependencyInjection
         services.AddScoped<AuthService>();
         services.AddScoped<CoupleService>();
         services.AddScoped<SyncService>();
+        services.AddScoped<VaultService>();
 
         return services;
     }

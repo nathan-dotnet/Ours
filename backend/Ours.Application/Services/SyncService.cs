@@ -6,6 +6,7 @@ using Ours.Application.DTOs.Calendar;
 using Ours.Application.DTOs.Couples;
 using Ours.Application.DTOs.Money;
 using Ours.Application.DTOs.Sync;
+using Ours.Application.DTOs.Vault;
 using Ours.Domain.Entities;
 
 namespace Ours.Application.Services;
@@ -13,21 +14,28 @@ namespace Ours.Application.Services;
 /// <summary>
 /// Generic, entity-agnostic sync endpoint implementation. Phase 1 registered a handler for
 /// "couple_profile" purely to prove the offline round trip end-to-end; Phase 2 added
-/// "calendar_event"; Phase 3 adds the Money System's three entities — "account",
-/// "money_transaction", and "budget" — the same way. Adding a new synced feature means adding a
-/// case per entity type to <see cref="PullAsync"/> and <see cref="PushAsync"/>, not a new
-/// controller or a parallel sync mechanism.
+/// "calendar_event"; Phase 3 added the Money System's three entities — "account",
+/// "money_transaction", and "budget"; the Vault feature adds "vault_item" — all the same way.
+/// Adding a new synced feature means adding a case per entity type to <see cref="PullAsync"/> and
+/// <see cref="PushAsync"/>, not a new controller or a parallel sync mechanism. "vault_item" is the
+/// one entity type whose payload isn't symmetric between the two directions — see
+/// <see cref="VaultItemPayloadDto"/>'s doc comment.
 /// </summary>
 public class SyncService(
     IApplicationDbContext db,
     ICurrentUserService currentUser,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IVaultEncryptionService vaultEncryption)
 {
     public const string CoupleProfileEntityType = "couple_profile";
     public const string CalendarEventEntityType = "calendar_event";
     public const string AccountEntityType = "account";
     public const string TransactionEntityType = "money_transaction";
     public const string BudgetEntityType = "budget";
+    public const string VaultItemEntityType = "vault_item";
+
+    /// <summary>Sanity ceiling on password length — independent of the column's actual varchar(200) headroom.</summary>
+    private const int MaxPasswordLength = 200;
 
     /// <summary>Application-level sanity ceiling — independent of any column's actual numeric(18,2) headroom — rejecting an obviously-mistyped amount (e.g. an extra zero) rather than silently accepting it. Shared by every money amount: Transaction.Amount, Account.OpeningBalance, Budget.Amount.</summary>
     private const decimal MaxMoneyAmount = 10_000_000m;
@@ -173,6 +181,38 @@ public class SyncService(
             });
         }
 
+        var vaultItems = await db.VaultItems
+            .Where(v => v.CoupleId == coupleId && (since == null || v.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var vaultItem in vaultItems)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = VaultItemEntityType,
+                EntityId = vaultItem.Id,
+                Operation = vaultItem.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                // Password is deliberately absent — only the already-encrypted representation is
+                // ever sent down. Neither device ever holds the key to decrypt it locally; see
+                // VaultController.Reveal for the one place plaintext leaves the server at all.
+                Payload = vaultItem.IsDeleted ? null : new VaultItemPayloadDto
+                {
+                    Title = vaultItem.Title,
+                    Username = vaultItem.Username,
+                    WebsiteUrl = vaultItem.WebsiteUrl,
+                    Category = vaultItem.Category,
+                    Notes = vaultItem.Notes,
+                    EncryptedPassword = Convert.ToBase64String(vaultItem.EncryptedPassword),
+                    Nonce = Convert.ToBase64String(vaultItem.Nonce),
+                    AuthTag = Convert.ToBase64String(vaultItem.AuthTag),
+                    KeyVersion = vaultItem.KeyVersion,
+                    CreatedByUserId = vaultItem.CreatedByUserId,
+                },
+                UpdatedAt = vaultItem.UpdatedAt,
+                UpdatedByUserId = vaultItem.UpdatedByUserId,
+                Version = vaultItem.Version,
+            });
+        }
+
         // Future entity types append their own "changed since `since`" checks here.
 
         return new SyncPullResponseDto { ServerTime = serverTime, Changes = changes };
@@ -210,6 +250,7 @@ public class SyncService(
                 AccountEntityType => await ApplyAccountChangeAsync(coupleId, item, ct),
                 TransactionEntityType => await ApplyTransactionChangeAsync(coupleId, item, ct),
                 BudgetEntityType => await ApplyBudgetChangeAsync(coupleId, item, ct),
+                VaultItemEntityType => await ApplyVaultItemChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
             results.Add(result);
@@ -715,6 +756,125 @@ public class SyncService(
         existing.Month = payload.Month;
         existing.Amount = payload.Amount;
         existing.Currency = payload.Currency;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    /// <summary>
+    /// Same create-vs-update-by-existence + soft-delete shape as every other entity here. The one
+    /// thing genuinely unique to Vault: <paramref name="item"/>'s payload carries a *plaintext*
+    /// password (see VaultItemPayloadDto) only when the user is setting/changing it — this method
+    /// is the only place that plaintext exists, for exactly as long as it takes to pass it to
+    /// <see cref="Ours.Application.Abstractions.IVaultEncryptionService.Encrypt"/>. It is never
+    /// logged, never included in a Rejected(...) message, and never persisted or returned as-is.
+    /// </summary>
+    private async Task<SyncPushResultItemDto> ApplyVaultItemChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.VaultItems.FirstOrDefaultAsync(v => v.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's vault items.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                // Already gone (or a retry of a delete that already landed) — idempotent success.
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        VaultItemPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<VaultItemPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Title))
+        {
+            return Rejected(item, "Title is required.");
+        }
+
+        if (!VaultCategory.IsValid(payload.Category))
+        {
+            return Rejected(item, "Invalid category.");
+        }
+
+        if (payload.Password is { Length: > MaxPasswordLength })
+        {
+            return Rejected(item, "Password is too long.");
+        }
+
+        var isNewItem = existing is null;
+        if (isNewItem && string.IsNullOrEmpty(payload.Password))
+        {
+            return Rejected(item, "Password is required.");
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            // First time the server has seen this id — trust the device-generated UUID, same as
+            // every other entity (offline-first: ids are minted on-device, not assigned server-side).
+            existing = new VaultItem
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.VaultItems.Add(existing);
+        }
+
+        existing.Title = payload.Title;
+        existing.Username = payload.Username;
+        existing.WebsiteUrl = payload.WebsiteUrl;
+        existing.Category = payload.Category;
+        existing.Notes = payload.Notes;
+
+        if (!string.IsNullOrEmpty(payload.Password))
+        {
+            var encrypted = vaultEncryption.Encrypt(payload.Password);
+            existing.EncryptedPassword = encrypted.Ciphertext;
+            existing.Nonce = encrypted.Nonce;
+            existing.AuthTag = encrypted.Tag;
+            existing.KeyVersion = encrypted.KeyVersion;
+        }
+        // else: the password wasn't changed — the existing encrypted fields are left completely
+        // untouched, exactly as required ("if the password is not changed, do not unnecessarily
+        // decrypt and re-encrypt it").
+
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;
         existing.Version += 1;

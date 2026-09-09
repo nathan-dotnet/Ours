@@ -32,6 +32,8 @@ dotnet restore
 # Local secrets (never committed — see .env.example for what a production deployment needs instead)
 dotnet user-secrets set "Jwt:Secret" "$(openssl rand -base64 48)" --project Ours.Api
 dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=ours_dev;Username=$(whoami);Password=" --project Ours.Api
+dotnet user-secrets set "Vault:CurrentKeyVersion" "1" --project Ours.Api
+dotnet user-secrets set "Vault:Keys:1" "$(openssl rand -base64 32)" --project Ours.Api
 
 # Install the EF Core CLI once, if you don't already have it
 dotnet tool install --global dotnet-ef
@@ -111,6 +113,34 @@ dotnet ef database update --project Ours.Infrastructure --startup-project Ours.A
   - `PaidByUserId` (on `Transaction`, optional) is validated against `CoupleMembers` (must be an
     active — `LeftAt IS NULL` — member of the caller's own couple) rather than trusted as-is —
     same rule the Phase 3A `Expense.PaidByUserId` used before it.
+- **Vault** (`VaultItem`): shared per-couple password entries. Create/update/delete go through
+  the same generic sync push/pull as everything else (`"vault_item"` in `SyncService`) — the one
+  addition is a single dedicated endpoint, `POST /api/vault/{id}/reveal`, because a sync payload
+  can never carry a decrypted password downstream to a partner's device; that's the one thing
+  that genuinely can't be modeled as a sync operation.
+  - **Encryption**: `IVaultEncryptionService` (Application/Abstractions) is the only abstraction
+    SyncService/VaultService know about; `VaultEncryptionService` (Infrastructure/Services) is
+    AES-256-GCM — a modern authenticated cipher, not a custom scheme — via a single server-held
+    key (`Vault:Keys`, base64, exactly 32 bytes, configured the same way as `Jwt:Secret`: user-secrets
+    locally, an environment variable in production; Program.cs fails fast at startup if it's
+    missing or the wrong size). A fresh random 96-bit nonce every encryption is what makes two
+    encryptions of the same password produce different ciphertext; the 128-bit GCM tag is what
+    makes a tampered ciphertext fail to decrypt outright rather than silently returning garbage.
+    `KeyVersion` is stored per row so the key can be rotated later (add a new entry to `Vault:Keys`,
+    bump `Vault:CurrentKeyVersion`) without needing to re-encrypt already-stored rows.
+  - **The vault password never leaves the server as plaintext except via `POST /api/vault/{id}/reveal`**,
+    an authenticated, couple-scoped, single-item action — never returned by the sync pull payload
+    (`VaultItemPayloadDto.Password` is push-only: the *new* plaintext value when the user is
+    setting/changing it, sent once over HTTPS and immediately encrypted in
+    `SyncService.ApplyVaultItemChangeAsync`; a pull instead carries `EncryptedPassword`/`Nonce`/
+    `AuthTag`/`KeyVersion` — the same ciphertext both partners' devices end up storing locally,
+    since only the server ever holds the key). Editing an item without changing its password
+    omits `Password` from the payload entirely, so the existing encrypted value is left completely
+    untouched — no unnecessary decrypt/re-encrypt round trip.
+  - Nothing in this path is ever logged: `ApplyVaultItemChangeAsync`/`VaultService.RevealAsync`
+    never interpolate a password into an exception message (every `Rejected(...)` here is a
+    static string, same convention as every other entity), so even `ExceptionHandlingMiddleware`'s
+    `logger.LogWarning(ex, ...)` — which does log `ex.Message` — can never end up logging one.
 - **Auth**: JWT access tokens (15 min) + rotating opaque refresh tokens (30 days, hashed at rest
   in `RefreshTokens`). A refresh token is revoked the moment it's redeemed; reusing an already-
   redeemed token is rejected.

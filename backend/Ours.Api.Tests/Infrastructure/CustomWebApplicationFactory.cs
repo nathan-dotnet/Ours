@@ -29,6 +29,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["Jwt:Issuer"] = "Ours",
                 ["Jwt:Audience"] = "OursApp",
                 ["Jwt:AccessTokenMinutes"] = "15",
+                // A real (test-only) AES-256 key — "integration-test-vault-key-32byt" is exactly
+                // 32 bytes — so Program.cs's fail-fast Vault key check passes and VaultController
+                // tests can actually encrypt/decrypt through the real service, not a fake one.
+                ["Vault:CurrentKeyVersion"] = "1",
+                ["Vault:Keys:1"] = "aW50ZWdyYXRpb24tdGVzdC12YXVsdC1rZXktMzJieXQ=",
             });
         });
 

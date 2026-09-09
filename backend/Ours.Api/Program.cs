@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Ours.Api.Middleware;
+using Ours.Application.Abstractions;
 using Ours.Infrastructure;
 using Ours.Infrastructure.Identity;
+using Ours.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -64,6 +66,19 @@ if (string.IsNullOrWhiteSpace(configuredJwtOptions.Secret))
         "Jwt:Secret is not configured. Set it via `dotnet user-secrets set \"Jwt:Secret\" \"<value>\"` " +
         "(development) or the Jwt__Secret environment variable (production). See backend/README.md.");
 }
+
+var configuredVaultOptions = app.Services.GetRequiredService<IOptions<VaultEncryptionOptions>>().Value;
+if (!configuredVaultOptions.Keys.ContainsKey(configuredVaultOptions.CurrentKeyVersion.ToString()))
+{
+    throw new InvalidOperationException(
+        $"Vault:Keys:{configuredVaultOptions.CurrentKeyVersion} is not configured. Set it via " +
+        $"`dotnet user-secrets set \"Vault:Keys:{configuredVaultOptions.CurrentKeyVersion}\" \"<base64 32-byte key>\"` " +
+        "(development, e.g. `openssl rand -base64 32`) or the corresponding Vault__Keys__<version> " +
+        "environment variable (production). See backend/README.md.");
+}
+// Constructing the service here (rather than waiting for the first request) is what actually
+// validates the key's shape (valid base64, exactly 32 bytes) fails fast too.
+_ = app.Services.GetRequiredService<IVaultEncryptionService>();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 

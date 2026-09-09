@@ -18,6 +18,7 @@ public interface IApplicationDbContext
     DbSet<Account> Accounts { get; }
     DbSet<Transaction> Transactions { get; }
     DbSet<Budget> Budgets { get; }
+    DbSet<VaultItem> VaultItems { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -1,7 +1,11 @@
-// jest-expo doesn't provide a working native binding for expo-crypto's randomUUID in the test
-// environment; this backs it with Node's own crypto.randomUUID so generated ids are real UUIDs.
-import { randomUUID as nodeRandomUUID } from 'node:crypto';
+// jest-expo doesn't provide a working native binding for expo-crypto in the test environment;
+// this backs both functions with Node's own crypto so tests get real random data.
+import { randomBytes, randomUUID as nodeRandomUUID } from 'node:crypto';
 
 export function randomUUID(): string {
   return nodeRandomUUID();
+}
+
+export function getRandomBytes(byteCount: number): Uint8Array {
+  return new Uint8Array(randomBytes(byteCount));
 }
