@@ -16,6 +16,10 @@ module.exports = {
         ink: '#1F2A3C',
         clay: '#7186A3',
         cream: '#EAF1FB',
+        // Reserved for a genuinely different signal than the primary accent — "you're over
+        // budget", never a form-validation error (those stay `rose`, unrelated concern). A muted
+        // warm coral reads as "pay attention" without introducing a harsh red into this palette.
+        warning: '#C97C6D',
       },
     },
   },

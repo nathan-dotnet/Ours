@@ -20,14 +20,14 @@ export function BudgetProgressRow({ category, spentCents, budgetCents, currency,
     <Pressable onPress={onPress} className="gap-1.5 rounded-xl bg-blush/60 px-4 py-3" style={softRaisedSubtle}>
       <View className="flex-row items-center justify-between">
         <Text className="text-sm font-medium text-ink">{category}</Text>
-        <Text className={`text-sm font-medium ${isOverBudget ? 'text-rose' : 'text-clay'}`}>
+        <Text className={`text-sm font-medium ${isOverBudget ? 'text-warning' : 'text-clay'}`}>
           {formatMoney(spentCents, currency)} / {formatMoney(budgetCents, currency)}
         </Text>
       </View>
       <View className="h-2 overflow-hidden rounded-full bg-cream">
-        <View className={`h-2 rounded-full ${isOverBudget ? 'bg-rose' : 'bg-ink/60'}`} style={{ width: `${barWidth}%` }} />
+        <View className={`h-2 rounded-full ${isOverBudget ? 'bg-warning' : 'bg-rose'}`} style={{ width: `${barWidth}%` }} />
       </View>
-      {isOverBudget ? <Text className="text-xs font-medium text-rose">Over budget by {formatMoney(spentCents - budgetCents, currency)}</Text> : null}
+      {isOverBudget ? <Text className="text-xs font-medium text-warning">Over budget by {formatMoney(spentCents - budgetCents, currency)}</Text> : null}
     </Pressable>
   );
 }

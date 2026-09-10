@@ -13,7 +13,7 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { useTransactionsForMonth } from '@/hooks/useTransactions';
 import { triggerSync } from '@/sync';
 import { chunkIntoRows, getAccountGridView } from '@/utils/accountGrid';
-import { softRaised, softRaisedSubtle } from '@/styles/neumorphism';
+import { softRaised, softRaisedAccent } from '@/styles/neumorphism';
 import {
   calculateAccountBalance,
   calculateBudgetRemaining,
@@ -90,17 +90,18 @@ export default function MoneyScreen() {
       ) : (
         <View className="mt-4 gap-8">
           {/*
-            --- Total balance: a single across-all-accounts figure, above Budget. It's a plain
-            sum of calculateAccountBalance (a Transfer's two legs cancel out across the whole
-            couple) — not a new stored/synced figure, same "derive at read time" approach as
-            Recent Activity. Skipped entirely with zero accounts; the Accounts section below
-            already owns that empty state.
+            --- Total balance: the page's one hero figure, above Budget. It's a plain sum of
+            calculateAccountBalance (a Transfer's two legs cancel out across the whole couple) —
+            not a new stored/synced figure, same "derive at read time" approach as Recent
+            Activity. Filled in the accent color (not blush) and given real weight — every other
+            card on this screen is a supporting detail, this is the one number the page leads
+            with. Skipped entirely with zero accounts; the Accounts section below owns that state.
           */}
           {allAccounts.length > 0 ? (
-            <View className="gap-2 rounded-2xl bg-blush p-4" style={softRaised}>
-              <Text className="text-sm font-semibold text-clay">Total Balance</Text>
-              <Text className="text-3xl font-semibold text-ink">{formatMoney(totalBalanceCents, currency)}</Text>
-              <Text className="text-xs text-clay">
+            <View className="items-center gap-1 rounded-3xl bg-rose px-6 py-7" style={softRaisedAccent}>
+              <Text className="text-xs font-semibold uppercase tracking-widest text-cream/75">Total Balance</Text>
+              <Text className="text-4xl font-bold text-cream">{formatMoney(totalBalanceCents, currency)}</Text>
+              <Text className="text-xs text-cream/70">
                 Across {allAccounts.length} account{allAccounts.length === 1 ? '' : 's'}
               </Text>
             </View>
@@ -108,22 +109,29 @@ export default function MoneyScreen() {
 
           {/* --- Budget first: the dashboard leads with "how am I doing", not "where's my money" --- */}
           <View className="gap-3">
-            <Text className="text-sm font-semibold text-clay">Budget</Text>
+            <Text className="text-xs font-semibold uppercase tracking-wider text-clay">Budget</Text>
 
             {allBudgets.length > 0 ? (
               <>
-                <View className="flex-row gap-3">
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
+                {/*
+                  One card with internal dividers, not three separately-shadowed tiles — three
+                  raised surfaces jammed edge to edge just looked cluttered; a single shadow
+                  reads as one coherent stat strip instead.
+                */}
+                <View className="flex-row rounded-2xl bg-blush p-4" style={softRaised}>
+                  <View className="flex-1 items-center gap-0.5">
                     <Text className="text-xs text-clay">Spent</Text>
                     <Text className="text-base font-semibold text-ink">{formatMoney(spentThisMonthCents, currency)}</Text>
                   </View>
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
+                  <View className="w-px bg-clay/20" />
+                  <View className="flex-1 items-center gap-0.5">
                     <Text className="text-xs text-clay">Budget</Text>
                     <Text className="text-base font-semibold text-ink">{formatMoney(totalBudgetCents, currency)}</Text>
                   </View>
-                  <View className="flex-1 gap-0.5 rounded-xl bg-blush/60 p-3" style={softRaisedSubtle}>
+                  <View className="w-px bg-clay/20" />
+                  <View className="flex-1 items-center gap-0.5">
                     <Text className="text-xs text-clay">Remaining</Text>
-                    <Text className={`text-base font-semibold ${remainingCents < 0 ? 'text-rose' : 'text-ink'}`}>
+                    <Text className={`text-base font-semibold ${remainingCents < 0 ? 'text-warning' : 'text-ink'}`}>
                       {formatMoney(remainingCents, currency)}
                     </Text>
                   </View>
@@ -162,7 +170,7 @@ export default function MoneyScreen() {
 
           {/* --- Accounts: a 2-column grid, previewed rather than dumped in full --- */}
           <View className="gap-2">
-            <Text className="text-sm font-semibold text-clay">Accounts</Text>
+            <Text className="text-xs font-semibold uppercase tracking-wider text-clay">Accounts</Text>
             {allAccounts.length === 0 ? (
               <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8" style={softRaised}>
                 <Text className="text-lg font-semibold text-ink">Where do you keep your money? ❤️</Text>
@@ -218,7 +226,7 @@ export default function MoneyScreen() {
 
           {/* --- Recent activity: transactions plus (never as a fake transaction) new accounts --- */}
           <View className="gap-2">
-            <Text className="text-sm font-semibold text-clay">Recent Transactions</Text>
+            <Text className="text-xs font-semibold uppercase tracking-wider text-clay">Recent Transactions</Text>
             {recentActivity.length === 0 ? (
               <View className="items-center gap-3 rounded-2xl bg-blush/60 py-8" style={softRaised}>
                 <Text className="text-lg font-semibold text-ink">No transactions yet ❤️</Text>
