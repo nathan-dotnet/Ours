@@ -9,7 +9,7 @@ import { useLocalCouple } from '@/hooks/useCouple';
 import { useMissMeStatus, useSendMissMe } from '@/hooks/useMissMe';
 import { useAuthStore } from '@/stores/authStore';
 import { triggerSync } from '@/sync';
-import { softRaised, softRaisedSubtle } from '@/styles/neumorphism';
+import { softRaised } from '@/styles/neumorphism';
 import { getGreeting } from '@/utils/greeting';
 import { describeMissMeMoment, formatMomentTimestamp } from '@/utils/missMeActivity';
 import { daysTogether } from '@/utils/relationship';
@@ -159,20 +159,34 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
+      {/*
+        One card, thin row dividers — not one floating shadowed card per entry. Three short
+        facts don't need three separate cards; that just burns vertical space for no extra
+        information, and it was inconsistent with the Budget stat strip's own single-card-with-
+        dividers treatment on Money. Title + timestamp share a single line (truncating rather
+        than wrapping) since both are short and this is meant to be scanned quickly, not read.
+      */}
       {history.length > 0 && user ? (
         <View className="gap-2 pb-8">
-          <Text className="text-sm font-semibold text-clay">Little Moments</Text>
-          {history.map((item) => (
-            <View key={item.id} className="gap-0.5 rounded-xl bg-blush/60 px-4 py-3" style={softRaisedSubtle}>
-              <Text className="text-sm text-ink">{describeMissMeMoment(item, user.id, partner?.display_name ?? 'your partner')}</Text>
-              <Text className="text-xs text-clay">{formatMomentTimestamp(item.createdAt, now)}</Text>
-            </View>
-          ))}
+          <Text className="text-xs font-semibold uppercase tracking-wider text-clay">Little Moments</Text>
+          <View className="rounded-2xl bg-blush px-1" style={softRaised}>
+            {history.map((item, index) => (
+              <View
+                key={item.id}
+                className={`flex-row items-center justify-between px-3 py-2.5 ${index < history.length - 1 ? 'border-b border-ink/10' : ''}`}
+              >
+                <Text className="flex-1 pr-3 text-sm text-ink" numberOfLines={1}>
+                  {describeMissMeMoment(item, user.id, partner?.display_name ?? 'your partner')}
+                </Text>
+                <Text className="text-xs text-clay">{formatMomentTimestamp(item.createdAt, now)}</Text>
+              </View>
+            ))}
+          </View>
         </View>
       ) : null}
 
       <View className="gap-3 pb-4">
-        <Text className="text-sm font-semibold text-clay">Our Moments</Text>
+        <Text className="text-xs font-semibold uppercase tracking-wider text-clay">Our Moments</Text>
         <View className="flex-row gap-3">
           <MomentCard label="Dates" emoji="📅" onPress={() => router.push('/calendar')} />
           <MomentCard label="Vault" emoji="🔐" onPress={() => router.push('/vault')} />

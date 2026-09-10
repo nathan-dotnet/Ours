@@ -24,7 +24,8 @@ export function BudgetProgressRow({ category, spentCents, budgetCents, currency,
           {formatMoney(spentCents, currency)} / {formatMoney(budgetCents, currency)}
         </Text>
       </View>
-      <View className="h-2 overflow-hidden rounded-full bg-cream">
+      {/* bg-cream was nearly invisible against this card's own bg-blush/60 fill — bg-ink/10 keeps a visible groove at any fill level, including 0%. */}
+      <View className="h-2 overflow-hidden rounded-full bg-ink/10">
         <View className={`h-2 rounded-full ${isOverBudget ? 'bg-warning' : 'bg-rose'}`} style={{ width: `${barWidth}%` }} />
       </View>
       {isOverBudget ? <Text className="text-xs font-medium text-warning">Over budget by {formatMoney(spentCents - budgetCents, currency)}</Text> : null}

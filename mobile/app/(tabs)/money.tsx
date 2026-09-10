@@ -158,13 +158,17 @@ export default function MoneyScreen() {
             )}
 
             {/*
-              Budgets never block spending — this pairs "plan" with "actually spend" so that
-              isn't a dead end. Full-width and stacked (never side-by-side) so both read as
-              their own distinct primary action, not a single split button.
+              Add Expense is the actual day-to-day action here and stays the one full-width
+              primary button; Add Budget is something you do rarely (once per category, mostly),
+              so it's a lightweight text link instead of a second button of equal visual weight —
+              two same-size CTAs stacked read as "pick one", when they're not equally important.
+              Same link treatment as "See All Accounts" below, for consistency.
             */}
-            <View className="gap-3">
-              <Button label="+ Add Budget" variant="secondary" onPress={() => router.push('/budgets/new')} />
+            <View className="gap-2">
               <Button label="+ Add Expense" onPress={() => router.push('/transactions/new?type=Expense')} />
+              <Pressable onPress={() => router.push('/budgets/new')} className="items-center py-1">
+                <Text className="text-sm font-semibold text-rose">+ Add Budget</Text>
+              </Pressable>
             </View>
           </View>
 
