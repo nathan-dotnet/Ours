@@ -137,8 +137,8 @@ export default function MoneyScreen() {
                   </View>
                 </View>
 
-                <View className="gap-2">
-                  {allBudgets.map((budget) => (
+                <View className="rounded-2xl bg-blush" style={softRaised}>
+                  {allBudgets.map((budget, index) => (
                     <BudgetProgressRow
                       key={budget.id}
                       category={budget.category}
@@ -146,6 +146,7 @@ export default function MoneyScreen() {
                       budgetCents={budget.amount_cents}
                       currency={budget.currency}
                       onPress={() => router.push(`/budgets/${budget.id}`)}
+                      showDivider={index < allBudgets.length - 1}
                     />
                   ))}
                 </View>
