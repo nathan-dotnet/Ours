@@ -1,14 +1,20 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Ours.Api.Middleware;
 using Ours.Application.Abstractions;
 using Ours.Infrastructure;
 using Ours.Infrastructure.Identity;
+using Ours.Infrastructure.Persistence;
 using Ours.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<AppDbContext>();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 
