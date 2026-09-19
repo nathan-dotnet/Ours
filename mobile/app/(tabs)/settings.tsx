@@ -53,7 +53,18 @@ export default function SettingsScreen() {
     try {
       await updateProfile(
         couple,
-        { nickname: values.nickname?.trim() || null, anniversaryDate: values.anniversaryDate?.trim() || null },
+        {
+          nickname: values.nickname?.trim() || null,
+          anniversaryDate: values.anniversaryDate?.trim() || null,
+          // A couple_profile push always replaces the whole profile — carry the allocation plan
+          // through unchanged so editing the nickname here can never wipe it (see
+          // coupleRepository.updateProfileLocally).
+          budgetAllocationPercent: couple.budget_allocation_percent,
+          savingsAllocationPercent: couple.savings_allocation_percent,
+          wantsAllocationPercent: couple.wants_allocation_percent,
+          budgetAccountId: couple.budget_account_id,
+          savingsAccountId: couple.savings_account_id,
+        },
         user.id,
       );
       setIsEditingRelationship(false);

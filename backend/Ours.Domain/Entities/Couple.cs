@@ -26,6 +26,26 @@ public class Couple : ISyncableEntity
 
     public DateOnly? AnniversaryDate { get; set; }
 
+    /// <summary>
+    /// The couple's saved default income-allocation plan (see the Money Calculator spec) — all
+    /// five null until they've saved one. Prefills the Calculator; freely re-editable any time,
+    /// never enforced as a hard rule. Edited through the same couple_profile sync payload as
+    /// Nickname/AnniversaryDate — see SyncService.ApplyCoupleProfileChangeAsync, which validates
+    /// the three percentages sum to 100 (when all three are set) and that each account id
+    /// belongs to this couple.
+    ///
+    /// Wants has no single account of its own here — it's split between the couple's members
+    /// instead (each member's own share and destination account — see
+    /// CoupleMember.WantsAllocationPercent), so unlike Budget/Savings there's nothing to store
+    /// at the couple level for it.
+    /// </summary>
+    public decimal? BudgetAllocationPercent { get; set; }
+    public decimal? SavingsAllocationPercent { get; set; }
+    public decimal? WantsAllocationPercent { get; set; }
+
+    public Guid? BudgetAccountId { get; set; }
+    public Guid? SavingsAccountId { get; set; }
+
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public Guid UpdatedByUserId { get; set; }

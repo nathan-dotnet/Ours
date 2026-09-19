@@ -14,11 +14,17 @@ describe('budgetSchema', () => {
     expect(budgetSchema.safeParse(values({ amountText: '-100' })).success).toBe(false);
   });
 
-  it('rejects an invalid category', () => {
-    expect(budgetSchema.safeParse(values({ category: 'NotACategory' })).success).toBe(false);
+  it('accepts a custom category not in the preset list — an open vocabulary, same as the backend', () => {
+    expect(budgetSchema.safeParse(values({ category: 'Date Night' })).success).toBe(true);
   });
 
-  it('rejects an income-only category (budgets are always for expense categories)', () => {
-    expect(budgetSchema.safeParse(values({ category: 'Salary' })).success).toBe(false);
+  it('rejects an empty category', () => {
+    expect(budgetSchema.safeParse(values({ category: '' })).success).toBe(false);
+    expect(budgetSchema.safeParse(values({ category: '   ' })).success).toBe(false);
+  });
+
+  it('rejects a category over the 30-character limit (mirrors the backend column)', () => {
+    expect(budgetSchema.safeParse(values({ category: 'x'.repeat(31) })).success).toBe(false);
+    expect(budgetSchema.safeParse(values({ category: 'x'.repeat(30) })).success).toBe(true);
   });
 });

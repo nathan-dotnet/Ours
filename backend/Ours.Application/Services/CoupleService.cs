@@ -113,7 +113,7 @@ public class CoupleService(
         // collection (and linked membership.User) because both are tracked with matching FKs —
         // mapping straight from it avoids double-counting the member we just added.
         var memberDtos = couple.Members
-            .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt })
+            .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt, MonthlyIncome = m.MonthlyIncome, WantsAllocationPercent = m.WantsAllocationPercent, WantsAccountId = m.WantsAccountId })
             .ToList();
 
         var dto = ToDto(couple, memberDtos);
@@ -132,7 +132,7 @@ public class CoupleService(
             ?? throw new NotFoundAppException("Couple not found.");
 
         var memberDtos = couple.Members
-            .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt })
+            .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt, MonthlyIncome = m.MonthlyIncome, WantsAllocationPercent = m.WantsAllocationPercent, WantsAccountId = m.WantsAccountId })
             .ToList();
 
         return ToDto(couple, memberDtos);
@@ -218,6 +218,11 @@ public class CoupleService(
         InviteCode = couple.InviteCode,
         Nickname = couple.Nickname,
         AnniversaryDate = couple.AnniversaryDate,
+        BudgetAllocationPercent = couple.BudgetAllocationPercent,
+        SavingsAllocationPercent = couple.SavingsAllocationPercent,
+        WantsAllocationPercent = couple.WantsAllocationPercent,
+        BudgetAccountId = couple.BudgetAccountId,
+        SavingsAccountId = couple.SavingsAccountId,
         UpdatedAt = couple.UpdatedAt,
         UpdatedByUserId = couple.UpdatedByUserId,
         Version = couple.Version,

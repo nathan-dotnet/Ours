@@ -303,8 +303,8 @@ namespace Ours.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Category")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<Guid>("CoupleId")
                         .HasColumnType("uuid");
@@ -417,6 +417,12 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("AnniversaryDate")
                         .HasColumnType("date");
 
+                    b.Property<Guid?>("BudgetAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("BudgetAllocationPercent")
+                        .HasColumnType("numeric(5,2)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -435,6 +441,12 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("SavingsAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("SavingsAllocationPercent")
+                        .HasColumnType("numeric(5,2)");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -444,10 +456,17 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.Property<int>("Version")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("WantsAllocationPercent")
+                        .HasColumnType("numeric(5,2)");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("BudgetAccountId");
 
                     b.HasIndex("InviteCode")
                         .IsUnique();
+
+                    b.HasIndex("SavingsAccountId");
 
                     b.ToTable("Couples");
                 });
@@ -467,8 +486,17 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LeftAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("MonthlyIncome")
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WantsAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("WantsAllocationPercent")
+                        .HasColumnType("numeric(5,2)");
 
                     b.HasKey("Id");
 
@@ -478,7 +506,151 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"LeftAt\" IS NULL");
 
+                    b.HasIndex("WantsAccountId");
+
                     b.ToTable("CoupleMembers");
+                });
+
+            modelBuilder.Entity("Ours.Domain.Entities.Distribution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BudgetAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BudgetAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("BudgetPercent")
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<decimal>("CombinedIncome")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("CoupleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SavingsAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("SavingsAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("SavingsPercent")
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<decimal>("WantsAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("WantsPercent")
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BudgetAccountId");
+
+                    b.HasIndex("SavingsAccountId");
+
+                    b.HasIndex("CoupleId", "Year", "Month");
+
+                    b.ToTable("Distributions");
+                });
+
+            modelBuilder.Entity("Ours.Domain.Entities.Loan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CoupleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal?>("FeesAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateOnly>("FirstDueDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("MonthlyPayment")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<decimal>("OriginalAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PaymentAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("TotalInstallments")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId");
+
+                    b.HasIndex("PaymentAccountId");
+
+                    b.HasIndex("CoupleId", "UpdatedAt");
+
+                    b.ToTable("Loans");
                 });
 
             modelBuilder.Entity("Ours.Domain.Entities.MissMeInteraction", b =>
@@ -518,6 +690,41 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.ToTable("MissMeInteractions");
                 });
 
+            modelBuilder.Entity("Ours.Domain.Entities.PushToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PushTokens");
+                });
+
             modelBuilder.Entity("Ours.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -554,6 +761,59 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.ToTable("RefreshTokens");
                 });
 
+            modelBuilder.Entity("Ours.Domain.Entities.SavingsGoal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AllocationPercent")
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<Guid>("CoupleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<decimal>("TargetAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoupleId", "UpdatedAt");
+
+                    b.ToTable("SavingsGoals");
+                });
+
             modelBuilder.Entity("Ours.Domain.Entities.Transaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -567,8 +827,8 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Category")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<Guid>("CoupleId")
                         .HasColumnType("uuid");
@@ -594,11 +854,17 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("LoanId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
                     b.Property<Guid?>("PaidByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SavingsGoalId")
                         .HasColumnType("uuid");
 
                     b.Property<DateOnly>("TransactionDate")
@@ -619,6 +885,10 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LoanId");
+
+                    b.HasIndex("SavingsGoalId");
 
                     b.HasIndex("AccountId", "TransactionDate");
 
@@ -794,6 +1064,19 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ours.Domain.Entities.Couple", b =>
+                {
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("BudgetAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SavingsAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Ours.Domain.Entities.CoupleMember", b =>
                 {
                     b.HasOne("Ours.Domain.Entities.Couple", "Couple")
@@ -808,9 +1091,53 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("WantsAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Couple");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Ours.Domain.Entities.Distribution", b =>
+                {
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("BudgetAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ours.Domain.Entities.Couple", null)
+                        .WithMany()
+                        .HasForeignKey("CoupleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SavingsAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ours.Domain.Entities.Loan", b =>
+                {
+                    b.HasOne("Ours.Domain.Entities.Couple", null)
+                        .WithMany()
+                        .HasForeignKey("CoupleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ours.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ours.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ours.Domain.Entities.MissMeInteraction", b =>
@@ -827,6 +1154,15 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Ours.Domain.Entities.PushToken", b =>
+                {
+                    b.HasOne("Ours.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ours.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("Ours.Domain.Entities.ApplicationUser", "User")
@@ -836,6 +1172,15 @@ namespace Ours.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Ours.Domain.Entities.SavingsGoal", b =>
+                {
+                    b.HasOne("Ours.Domain.Entities.Couple", null)
+                        .WithMany()
+                        .HasForeignKey("CoupleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ours.Domain.Entities.Transaction", b =>
@@ -855,6 +1200,16 @@ namespace Ours.Infrastructure.Persistence.Migrations
                     b.HasOne("Ours.Domain.Entities.Account", null)
                         .WithMany()
                         .HasForeignKey("DestinationAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ours.Domain.Entities.Loan", null)
+                        .WithMany()
+                        .HasForeignKey("LoanId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ours.Domain.Entities.SavingsGoal", null)
+                        .WithMany()
+                        .HasForeignKey("SavingsGoalId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

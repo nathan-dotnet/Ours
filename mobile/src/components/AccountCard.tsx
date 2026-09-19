@@ -1,6 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Account } from '../types/entities';
-import { softRaised } from '../styles/neumorphism';
 import { BrandLogo } from './BrandLogo';
 import { formatMoney } from '../utils/money';
 
@@ -12,24 +11,27 @@ interface AccountCardProps {
   fill?: boolean;
 }
 
-/** A visual card (not a plain row) for one account — logo/icon, name, balance, type. */
+/**
+ * A bordered, flat account card — logo/icon+name up top, then a prominent balance, then the
+ * account type as a small caption. Same "value dominant, label/caption beneath" idiom as
+ * MoneyStat, on a bordered (not shadowed) surface.
+ */
 export function AccountCard({ account, balanceCents, onPress, fill = false }: AccountCardProps) {
   return (
     <Pressable
       onPress={onPress}
-      className={`${fill ? 'flex-1' : 'w-44'} h-36 justify-between gap-1.5 rounded-2xl bg-blush p-4`}
-      style={softRaised}
+      className={`${fill ? 'flex-1' : 'w-44'} gap-2 rounded-xl border border-border bg-surface p-4`}
     >
-      <BrandLogo icon={account.icon} accountType={account.type} size={36} />
-      <View className="gap-0.5">
-        <Text className="text-base font-semibold text-ink" numberOfLines={1}>
+      <View className="flex-row items-center gap-2">
+        <BrandLogo icon={account.icon} accountType={account.type} size={24} />
+        <Text className="flex-1 text-sm font-semibold text-textPrimary" numberOfLines={1}>
           {account.name}
         </Text>
-        <Text className="text-lg font-semibold text-ink" numberOfLines={1}>
-          {formatMoney(balanceCents, account.currency)}
-        </Text>
-        <Text className="text-xs text-clay">{account.type}</Text>
       </View>
+      <Text className="text-lg font-bold text-textPrimary" numberOfLines={1}>
+        {formatMoney(balanceCents, account.currency)}
+      </Text>
+      <Text className="text-xs text-textSecondary">{account.type}</Text>
     </Pressable>
   );
 }

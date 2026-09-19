@@ -16,10 +16,25 @@ module.exports = {
         ink: '#1F2A3C',
         clay: '#7186A3',
         cream: '#EAF1FB',
-        // Reserved for a genuinely different signal than the primary accent — "you're over
-        // budget", never a form-validation error (those stay `rose`, unrelated concern). A muted
-        // warm coral reads as "pay attention" without introducing a harsh red into this palette.
+        // Reserved for a genuinely different signal than the primary accent — "you're
+        // approaching a limit", never a form-validation error (those stay `rose`, unrelated
+        // concern). A muted warm coral reads as "pay attention" without introducing a harsh red.
         warning: '#C97C6D',
+
+        // Additive semantic layer for the modern-fintech Money redesign — sits alongside the
+        // palette above rather than replacing it (every existing className keeps working
+        // unchanged). `surface`/`border` give cards a flat, bordered look instead of a shadowed
+        // tinted block; `textPrimary`/`textSecondary`/`textMuted` give a real 3-tier text
+        // hierarchy; `success`/`error` are genuinely distinct signals from the softer `warning`
+        // ("healthy" vs. "approaching a limit" vs. "over/overdue").
+        surface: '#FFFFFF',
+        border: '#DCE3EE',
+        textPrimary: '#1F2A3C', // = ink
+        textSecondary: '#7186A3', // = clay
+        textMuted: '#9AA8BE',
+        accent: '#5B7FBE', // = rose
+        success: '#3FA66B',
+        error: '#D14F45',
       },
     },
   },

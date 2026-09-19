@@ -1,9 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { EXPENSE_CATEGORIES } from '../validation/transaction';
 import { budgetSchema, type BudgetFormValues } from '../validation/budget';
 import { Button } from './Button';
+import { CategoryPickerField } from './CategoryPickerField';
 import { TextField } from './TextField';
 
 interface BudgetFormProps {
@@ -31,24 +32,14 @@ export function BudgetForm({ initialValues, categoryLocked, submitLabel, isSubmi
 
   return (
     <View className="gap-4">
-      <View className="gap-1.5">
-        <Text className="text-sm font-medium text-ink">Category</Text>
-        <View className="flex-row flex-wrap gap-2">
-          {EXPENSE_CATEGORIES.map((option) => {
-            const selected = option === category;
-            return (
-              <Pressable
-                key={option}
-                disabled={categoryLocked}
-                onPress={() => setValue('category', option)}
-                className={`rounded-full px-3 py-2 ${selected ? 'bg-rose' : 'bg-blush'} ${categoryLocked && !selected ? 'opacity-40' : ''}`}
-              >
-                <Text className={`text-xs font-medium ${selected ? 'text-cream' : 'text-clay'}`}>{option}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      <CategoryPickerField
+        label="Category"
+        presets={EXPENSE_CATEGORIES}
+        value={category}
+        onChange={(value) => setValue('category', value, { shouldValidate: true })}
+        disabled={categoryLocked}
+        error={errors.category?.message}
+      />
 
       <Controller
         control={control}

@@ -31,6 +31,8 @@ function transaction(overrides: Partial<Transaction> = {}): Transaction {
     account_id: 'account-1',
     destination_account_id: null,
     category: 'Food',
+    savings_goal_id: null,
+    loan_id: null,
     description: 'Dinner',
     transaction_date: '2026-09-03',
     notes: null,

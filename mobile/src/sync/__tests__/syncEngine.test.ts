@@ -109,10 +109,15 @@ describe('runSync', () => {
       inviteCode: 'OURS-TEST',
       nickname: null,
       anniversaryDate: null,
+      budgetAllocationPercent: null,
+      savingsAllocationPercent: null,
+      wantsAllocationPercent: null,
+      budgetAccountId: null,
+      savingsAccountId: null,
       updatedAt: '2025-12-01T00:00:00.000Z',
       updatedByUserId: 'user-1',
       version: 1,
-      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z', monthlyIncome: null, wantsAllocationPercent: null, wantsAccountId: null }],
     });
 
     global.fetch = jest.fn().mockResolvedValue(
@@ -221,10 +226,15 @@ describe('runSync', () => {
       inviteCode: 'OURS-TEST',
       nickname: null,
       anniversaryDate: null,
+      budgetAllocationPercent: null,
+      savingsAllocationPercent: null,
+      wantsAllocationPercent: null,
+      budgetAccountId: null,
+      savingsAccountId: null,
       updatedAt: '2025-12-01T00:00:00.000Z',
       updatedByUserId: 'user-1',
       version: 1,
-      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z', monthlyIncome: null, wantsAllocationPercent: null, wantsAccountId: null }],
     });
     const transactionId = 'tx-1';
 
@@ -280,10 +290,15 @@ describe('runSync', () => {
       inviteCode: 'OURS-TEST',
       nickname: null,
       anniversaryDate: null,
+      budgetAllocationPercent: null,
+      savingsAllocationPercent: null,
+      wantsAllocationPercent: null,
+      budgetAccountId: null,
+      savingsAccountId: null,
       updatedAt: '2025-12-01T00:00:00.000Z',
       updatedByUserId: 'user-1',
       version: 1,
-      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z', monthlyIncome: null, wantsAllocationPercent: null, wantsAccountId: null }],
     });
     const budgetId = 'budget-1';
 
@@ -371,10 +386,15 @@ describe('runSync', () => {
       inviteCode: 'OURS-TEST',
       nickname: null,
       anniversaryDate: null,
+      budgetAllocationPercent: null,
+      savingsAllocationPercent: null,
+      wantsAllocationPercent: null,
+      budgetAccountId: null,
+      savingsAccountId: null,
       updatedAt: '2025-12-01T00:00:00.000Z',
       updatedByUserId: 'user-1',
       version: 1,
-      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z', monthlyIncome: null, wantsAllocationPercent: null, wantsAccountId: null }],
     });
     const itemId = 'vault-item-1';
 
@@ -431,10 +451,15 @@ describe('runSync', () => {
       inviteCode: 'OURS-TEST',
       nickname: null,
       anniversaryDate: null,
+      budgetAllocationPercent: null,
+      savingsAllocationPercent: null,
+      wantsAllocationPercent: null,
+      budgetAccountId: null,
+      savingsAccountId: null,
       updatedAt: '2025-12-01T00:00:00.000Z',
       updatedByUserId: 'user-1',
       version: 1,
-      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z' }],
+      members: [{ userId: 'user-1', displayName: 'Alice', joinedAt: '2025-12-01T00:00:00.000Z', monthlyIncome: null, wantsAllocationPercent: null, wantsAccountId: null }],
     });
     const eventId = 'event-1';
 

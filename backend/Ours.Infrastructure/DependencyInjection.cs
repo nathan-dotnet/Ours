@@ -9,6 +9,7 @@ using Ours.Application.Services;
 using Ours.Domain.Entities;
 using Ours.Infrastructure.Email;
 using Ours.Infrastructure.Identity;
+using Ours.Infrastructure.Notifications;
 using Ours.Infrastructure.Persistence;
 using Ours.Infrastructure.Services;
 
@@ -47,6 +48,7 @@ public static class DependencyInjection
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<VaultEncryptionOptions>(configuration.GetSection(VaultEncryptionOptions.SectionName));
+        services.Configure<PushOptions>(configuration.GetSection(PushOptions.SectionName));
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
@@ -65,11 +67,31 @@ public static class DependencyInjection
                 : ActivatorUtilities.CreateInstance<DevelopmentEmailService>(sp);
         });
 
+        // Typed client (not just AddHttpClient()) so ExpoPushNotificationSender can be resolved
+        // directly from the container below with its HttpClient already configured — same
+        // "only the real implementation touches the network" split as IEmailService above.
+        services.AddHttpClient<ExpoPushNotificationSender>(client =>
+        {
+            client.BaseAddress = new Uri("https://exp.host/");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
+        });
+        services.AddScoped<IPushNotificationSender>(sp =>
+        {
+            var pushOptions = sp.GetRequiredService<IOptions<PushOptions>>().Value;
+            return pushOptions.Provider.Equals("expo", StringComparison.OrdinalIgnoreCase)
+                ? sp.GetRequiredService<ExpoPushNotificationSender>()
+                : ActivatorUtilities.CreateInstance<DevelopmentPushNotificationSender>(sp);
+        });
+
         services.AddScoped<AuthService>();
         services.AddScoped<CoupleService>();
         services.AddScoped<SyncService>();
         services.AddScoped<VaultService>();
         services.AddScoped<MissMeService>();
+        services.AddScoped<PushTokenService>();
+        services.AddScoped<DistributionService>();
+        services.AddScoped<LoanService>();
 
         return services;
     }

@@ -6,6 +6,7 @@ export default function TransactionsLayout() {
     <Stack screenOptions={{ presentation: 'modal', headerShown: true, headerTintColor: '#5B7FBE' }}>
       <Stack.Screen name="new" options={{ title: 'Add Transaction' }} />
       <Stack.Screen name="[id]" options={{ title: 'Edit Transaction' }} />
+      <Stack.Screen name="quick-log" options={{ title: 'Quick Log' }} />
     </Stack>
   );
 }

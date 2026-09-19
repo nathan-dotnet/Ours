@@ -1,49 +1,45 @@
 import type { ViewStyle } from 'react-native';
 
 /**
- * Soft Romantic Neumorphism shadow tokens.
- *
- * True neumorphism pairs a light shadow (top-left) with a dark shadow (bottom-right) on a
- * surface that's nearly the same color as its background, so the surface reads as pressed out of
- * (or into) the page rather than "a card floating on top of it". React Native's View only
- * supports one shadow per element (shadowColor/Offset/Opacity/Radius on iOS, elevation on
- * Android — no dual light+dark shadow, no inset), so these approximate the effect with a single
- * soft, diffused, blue-tinted shadow (tinted to match the palette's ink, not neutral black/gray,
- * which is what keeps it reading as "soft" rather than "a generic drop shadow") plus generous
- * corner rounding. That single-shadow approximation is a deliberate, documented simplification —
- * not a missing feature — given plain React Native style props are used here instead of pulling
- * in a shadow-rendering library for a purely cosmetic effect.
+ * Shadow tokens — kept as a single small file so every surface in the app shares one elevation
+ * scale. Originally a "Soft Romantic Neumorphism" look (heavy dual-toned shadows on every card);
+ * the Money redesign moved the app toward a flatter, bordered "modern fintech" language instead
+ * (see Card.tsx — borders do the grouping work shadows used to do), so these are now genuinely
+ * subtle elevation, used sparingly, not the default treatment for every surface. The three export
+ * names are kept as-is (rather than renamed) so every existing importer across the app keeps
+ * compiling unchanged; only the values changed.
  *
  * Plain style objects (not NativeWind classes) because shadowColor/Offset/Opacity/Radius and
  * elevation aren't representable as Tailwind utilities in this project's NativeWind setup —
- * spread these alongside each surface's existing className.
+ * spread these alongside each surface's existing className, only where real elevation (a floating
+ * primary button, a modal) is warranted.
  */
 
-const SHADOW_TINT = '#1F2A3C'; // the same navy as the `ink` palette token — see tailwind.config.js
+const SHADOW_TINT = '#1F2A3C'; // the same navy as the `ink`/`textPrimary` palette token — see tailwind.config.js
 
-/** The default "raised card" shadow — Money/Calendar/Vault list cards, dashboard tiles, form cards. */
+/** A subtle lift for the rare surface that should float above the page (e.g. a modal sheet). Most cards should use Card.tsx's border instead of this. */
 export const softRaised: ViewStyle = {
   shadowColor: SHADOW_TINT,
-  shadowOffset: { width: 0, height: 6 },
-  shadowOpacity: 0.14,
-  shadowRadius: 14,
-  elevation: 5,
-};
-
-/** A lighter touch for small/nested surfaces (stat tiles inside a card, chips, icon badges) where a full-strength shadow would look noisy stacked on top of another shadow. */
-export const softRaisedSubtle: ViewStyle = {
-  shadowColor: SHADOW_TINT,
-  shadowOffset: { width: 0, height: 3 },
-  shadowOpacity: 0.10,
-  shadowRadius: 7,
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.08,
+  shadowRadius: 6,
   elevation: 2,
 };
 
-/** For the primary (rose-filled) button — a slightly stronger, more saturated lift since it's the page's main call to action. */
+/** Barely-there elevation for small/nested surfaces (chips, icon badges) where even `softRaised` would look noisy. */
+export const softRaisedSubtle: ViewStyle = {
+  shadowColor: SHADOW_TINT,
+  shadowOffset: { width: 0, height: 1 },
+  shadowOpacity: 0.06,
+  shadowRadius: 3,
+  elevation: 1,
+};
+
+/** The primary (accent-filled) button's own slightly stronger lift — still subtle, just enough to read as "the one thing to tap". */
 export const softRaisedAccent: ViewStyle = {
   shadowColor: SHADOW_TINT,
-  shadowOffset: { width: 0, height: 5 },
-  shadowOpacity: 0.22,
-  shadowRadius: 10,
-  elevation: 6,
+  shadowOffset: { width: 0, height: 3 },
+  shadowOpacity: 0.12,
+  shadowRadius: 8,
+  elevation: 3,
 };

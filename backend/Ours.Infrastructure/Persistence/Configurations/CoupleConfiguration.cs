@@ -15,6 +15,17 @@ public class CoupleConfiguration : IEntityTypeConfiguration<Couple>
 
         builder.Property(c => c.Nickname).HasMaxLength(100);
 
+        // Exact numeric storage — never float/double — same as every other percentage/money column here.
+        builder.Property(c => c.BudgetAllocationPercent).HasColumnType("numeric(5,2)");
+        builder.Property(c => c.SavingsAllocationPercent).HasColumnType("numeric(5,2)");
+        builder.Property(c => c.WantsAllocationPercent).HasColumnType("numeric(5,2)");
+
+        // Restrict, not Cascade: an Account is never hard-deleted (see AccountConfiguration), so
+        // there's no cascade path this could ever need — same reasoning as Transaction's own
+        // Account FKs.
+        builder.HasOne<Account>().WithMany().HasForeignKey(c => c.BudgetAccountId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Account>().WithMany().HasForeignKey(c => c.SavingsAccountId).OnDelete(DeleteBehavior.Restrict);
+
         builder.HasMany(c => c.Members)
             .WithOne(m => m.Couple)
             .HasForeignKey(m => m.CoupleId)
@@ -27,6 +38,11 @@ public class CoupleMemberConfiguration : IEntityTypeConfiguration<CoupleMember>
     public void Configure(EntityTypeBuilder<CoupleMember> builder)
     {
         builder.HasKey(m => m.Id);
+
+        builder.Property(m => m.MonthlyIncome).HasColumnType("numeric(18,2)");
+        builder.Property(m => m.WantsAllocationPercent).HasColumnType("numeric(5,2)");
+
+        builder.HasOne<Account>().WithMany().HasForeignKey(m => m.WantsAccountId).OnDelete(DeleteBehavior.Restrict);
 
         // Enforces "a user belongs to at most one *active* couple" (app-level check on
         // ApplicationUser.CoupleId is the primary mechanism; this is the DB-level backstop) and,

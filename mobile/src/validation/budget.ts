@@ -1,11 +1,19 @@
 import { z } from 'zod';
 import { parseAmountInputToCents } from '../utils/money';
-import { EXPENSE_CATEGORIES } from './transaction';
+import { MAX_EXPENSE_CATEGORY_LENGTH } from './transaction';
 
 const MAX_AMOUNT_CENTS = 10_000_000 * 100;
 
 export const budgetSchema = z.object({
-  category: z.enum(EXPENSE_CATEGORIES),
+  // An open vocabulary, same as an expense transaction's category (see transaction.ts) — a
+  // preset like "Food", or a couple's own custom name (e.g. "Date Night") so a budget can live
+  // wherever they actually organize their spending. Mirrors the backend's
+  // TransactionCategory.IsValidExpenseCategory exactly.
+  category: z
+    .string()
+    .trim()
+    .min(1, 'Enter a category')
+    .max(MAX_EXPENSE_CATEGORY_LENGTH, `Keep it under ${MAX_EXPENSE_CATEGORY_LENGTH} characters`),
   amountText: z
     .string()
     .trim()

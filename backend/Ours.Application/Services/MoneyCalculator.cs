@@ -40,9 +40,59 @@ public static class MoneyCalculator
                 if (t.AccountId == accountId) balance -= t.Amount;
                 if (t.DestinationAccountId == accountId) balance += t.Amount;
             }
+            else if (t.Type == TransactionType.SavingsContribution && t.AccountId == accountId)
+            {
+                // The money leaves the spendable account into the earmarked goal — same
+                // direction as an Expense, but never counted as spending (see CalculateMonthlySpending).
+                balance -= t.Amount;
+            }
+            else if (t.Type == TransactionType.SavingsWithdrawal && t.AccountId == accountId)
+            {
+                balance += t.Amount;
+            }
+            else if (t.Type == TransactionType.IncomeAllocation && t.AccountId == accountId)
+            {
+                // A distribution bucket landing in its destination account — credits like Income.
+                balance += t.Amount;
+            }
+            else if (t.Type == TransactionType.LoanPayment && t.AccountId == accountId)
+            {
+                // The money leaves the spendable account toward the loan — same direction as an
+                // Expense, but tracked separately (see CalculateMonthlySpending/CalculateLoanPaidAmount).
+                balance -= t.Amount;
+            }
         }
         return balance;
     }
+
+    /// <summary>
+    /// A savings goal's progress — deliberately never a stored column (see SavingsGoal's doc
+    /// comment): the sum of every non-deleted SavingsContribution (+) and SavingsWithdrawal (-)
+    /// transaction linked to it, the same "derive fresh every time" approach as account balance.
+    /// </summary>
+    public static decimal CalculateSavingsGoalBalance(Guid savingsGoalId, IEnumerable<Transaction> transactions)
+    {
+        var balance = 0m;
+        foreach (var t in transactions)
+        {
+            if (t.IsDeleted || t.SavingsGoalId != savingsGoalId) continue;
+
+            if (t.Type == TransactionType.SavingsContribution) balance += t.Amount;
+            else if (t.Type == TransactionType.SavingsWithdrawal) balance -= t.Amount;
+        }
+        return balance;
+    }
+
+    /// <summary>
+    /// Total paid so far toward one loan — deliberately never a stored column (see Loan's doc
+    /// comment): the sum of every non-deleted LoanPayment transaction linked to it. A loan's
+    /// remaining balance is always <c>OriginalAmount - CalculateLoanPaidAmount(...)</c>, and its
+    /// installments paid is <c>floor(CalculateLoanPaidAmount(...) / MonthlyPayment)</c> — both
+    /// computed by the caller (LoanService/LoanDto), not here, so this stays the one place that
+    /// actually sums the ledger.
+    /// </summary>
+    public static decimal CalculateLoanPaidAmount(Guid loanId, IEnumerable<Transaction> transactions) =>
+        transactions.Where(t => !t.IsDeleted && t.Type == TransactionType.LoanPayment && t.LoanId == loanId).Sum(t => t.Amount);
 
     /// <summary>Sum of every active (non-deleted, IsActive) account's balance — a Transfer's two legs always cancel out across the whole couple, so this is unaffected by transfer volume.</summary>
     public static decimal CalculateTotalBalance(IEnumerable<Account> accounts, IEnumerable<Transaction> transactions)

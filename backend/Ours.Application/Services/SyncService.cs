@@ -32,6 +32,8 @@ public class SyncService(
     public const string AccountEntityType = "account";
     public const string TransactionEntityType = "money_transaction";
     public const string BudgetEntityType = "budget";
+    public const string SavingsGoalEntityType = "savings_goal";
+    public const string LoanEntityType = "loan";
     public const string VaultItemEntityType = "vault_item";
 
     /// <summary>Sanity ceiling on password length — independent of the column's actual varchar(200) headroom.</summary>
@@ -59,7 +61,15 @@ public class SyncService(
                 : await db.CoupleMembers
                     .Where(m => m.CoupleId == couple.Id && m.LeftAt == null)
                     .Include(m => m.User)
-                    .Select(m => new CoupleMemberDto { UserId = m.UserId, DisplayName = m.User.DisplayName, JoinedAt = m.JoinedAt })
+                    .Select(m => new CoupleMemberDto
+                    {
+                        UserId = m.UserId,
+                        DisplayName = m.User.DisplayName,
+                        JoinedAt = m.JoinedAt,
+                        MonthlyIncome = m.MonthlyIncome,
+                        WantsAllocationPercent = m.WantsAllocationPercent,
+                        WantsAccountId = m.WantsAccountId,
+                    })
                     .ToListAsync(ct);
 
             changes.Add(new SyncChangeDto
@@ -67,7 +77,20 @@ public class SyncService(
                 EntityType = CoupleProfileEntityType,
                 EntityId = couple.Id,
                 Operation = couple.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
-                Payload = couple.IsDeleted ? null : new CoupleProfilePayloadDto { Nickname = couple.Nickname, AnniversaryDate = couple.AnniversaryDate, Members = members },
+                // MyMonthlyIncome/MemberWantsAllocations are deliberately absent here — both
+                // push-only fields (see their own doc comments); each member's income and Wants
+                // split are already carried per-member in `members`.
+                Payload = couple.IsDeleted ? null : new CoupleProfilePayloadDto
+                {
+                    Nickname = couple.Nickname,
+                    AnniversaryDate = couple.AnniversaryDate,
+                    BudgetAllocationPercent = couple.BudgetAllocationPercent,
+                    SavingsAllocationPercent = couple.SavingsAllocationPercent,
+                    WantsAllocationPercent = couple.WantsAllocationPercent,
+                    BudgetAccountId = couple.BudgetAccountId,
+                    SavingsAccountId = couple.SavingsAccountId,
+                    Members = members,
+                },
                 UpdatedAt = couple.UpdatedAt,
                 UpdatedByUserId = couple.UpdatedByUserId,
                 Version = couple.Version,
@@ -145,6 +168,8 @@ public class SyncService(
                     AccountId = transaction.AccountId,
                     DestinationAccountId = transaction.DestinationAccountId,
                     Category = transaction.Category,
+                    SavingsGoalId = transaction.SavingsGoalId,
+                    LoanId = transaction.LoanId,
                     Description = transaction.Description,
                     TransactionDate = transaction.TransactionDate,
                     Notes = transaction.Notes,
@@ -178,6 +203,60 @@ public class SyncService(
                 UpdatedAt = budget.UpdatedAt,
                 UpdatedByUserId = budget.UpdatedByUserId,
                 Version = budget.Version,
+            });
+        }
+
+        var savingsGoals = await db.SavingsGoals
+            .Where(g => g.CoupleId == coupleId && (since == null || g.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var goal in savingsGoals)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = SavingsGoalEntityType,
+                EntityId = goal.Id,
+                Operation = goal.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = goal.IsDeleted ? null : new SavingsGoalPayloadDto
+                {
+                    Name = goal.Name,
+                    TargetAmount = goal.TargetAmount,
+                    Currency = goal.Currency,
+                    AllocationPercent = goal.AllocationPercent,
+                    IsActive = goal.IsActive,
+                },
+                UpdatedAt = goal.UpdatedAt,
+                UpdatedByUserId = goal.UpdatedByUserId,
+                Version = goal.Version,
+            });
+        }
+
+        var loans = await db.Loans
+            .Where(l => l.CoupleId == coupleId && (since == null || l.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var loan in loans)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = LoanEntityType,
+                EntityId = loan.Id,
+                Operation = loan.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = loan.IsDeleted ? null : new LoanPayloadDto
+                {
+                    Name = loan.Name,
+                    Provider = loan.Provider,
+                    OriginalAmount = loan.OriginalAmount,
+                    MonthlyPayment = loan.MonthlyPayment,
+                    TotalInstallments = loan.TotalInstallments,
+                    FirstDueDate = loan.FirstDueDate,
+                    Frequency = loan.Frequency,
+                    FeesAmount = loan.FeesAmount,
+                    Currency = loan.Currency,
+                    PaymentAccountId = loan.PaymentAccountId,
+                    OwnerUserId = loan.OwnerUserId,
+                },
+                UpdatedAt = loan.UpdatedAt,
+                UpdatedByUserId = loan.UpdatedByUserId,
+                Version = loan.Version,
             });
         }
 
@@ -250,6 +329,8 @@ public class SyncService(
                 AccountEntityType => await ApplyAccountChangeAsync(coupleId, item, ct),
                 TransactionEntityType => await ApplyTransactionChangeAsync(coupleId, item, ct),
                 BudgetEntityType => await ApplyBudgetChangeAsync(coupleId, item, ct),
+                SavingsGoalEntityType => await ApplySavingsGoalChangeAsync(coupleId, item, ct),
+                LoanEntityType => await ApplyLoanChangeAsync(coupleId, item, ct),
                 VaultItemEntityType => await ApplyVaultItemChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
@@ -300,8 +381,97 @@ public class SyncService(
             return Rejected(item, "Invalid payload.");
         }
 
+        // The manual Deserialize above bypasses ASP.NET Core's automatic DataAnnotations
+        // validation (that only runs for controller-bound request DTOs) — every payload-level
+        // rule here is re-checked explicitly in code, same as every other Apply*ChangeAsync.
+        var percents = new[] { payload.BudgetAllocationPercent, payload.SavingsAllocationPercent, payload.WantsAllocationPercent };
+        if (percents.Any(p => p is not null))
+        {
+            if (percents.Any(p => p is null))
+            {
+                return Rejected(item, "Budget, Savings, and Wants percentages must all be set together.");
+            }
+            if (percents.Any(p => p < 0 || p > 100))
+            {
+                return Rejected(item, "Percentages must be between 0 and 100.");
+            }
+            if (percents.Sum(p => p!.Value) != 100m)
+            {
+                return Rejected(item, "Your allocation must equal exactly 100%.");
+            }
+        }
+
+        var allocationAccountIds = new[] { payload.BudgetAccountId, payload.SavingsAccountId }
+            .Where(id => id is not null).Select(id => id!.Value).Distinct().ToList();
+        if (allocationAccountIds.Count > 0)
+        {
+            var ownedCount = await db.Accounts.CountAsync(a => allocationAccountIds.Contains(a.Id) && a.CoupleId == coupleId, ct);
+            if (ownedCount != allocationAccountIds.Count)
+            {
+                return Rejected(item, "Each allocation account must belong to your couple.");
+            }
+        }
+
+        if (payload.MyMonthlyIncome is < 0)
+        {
+            return Rejected(item, "Income cannot be negative.");
+        }
+
+        var membership = await db.CoupleMembers.FirstOrDefaultAsync(m => m.CoupleId == coupleId && m.UserId == currentUser.UserId && m.LeftAt == null, ct);
+        if (membership is not null)
+        {
+            membership.MonthlyIncome = payload.MyMonthlyIncome;
+        }
+
+        if (payload.MemberWantsAllocations is { Count: > 0 } memberWantsAllocations)
+        {
+            var memberUserIds = memberWantsAllocations.Select(a => a.UserId).ToList();
+            if (memberUserIds.Distinct().Count() != memberUserIds.Count)
+            {
+                return Rejected(item, "Each member's Wants share can only appear once.");
+            }
+
+            var activeMembers = await db.CoupleMembers
+                .Where(m => m.CoupleId == coupleId && memberUserIds.Contains(m.UserId) && m.LeftAt == null)
+                .ToListAsync(ct);
+            if (activeMembers.Count != memberUserIds.Count)
+            {
+                return Rejected(item, "Each member's Wants share must be for an active member of your couple.");
+            }
+
+            if (memberWantsAllocations.Any(a => a.WantsAllocationPercent is < 0 or > 100))
+            {
+                return Rejected(item, "Wants share percentages must be between 0 and 100.");
+            }
+
+            var wantsAccountIds = memberWantsAllocations.Where(a => a.WantsAccountId is not null).Select(a => a.WantsAccountId!.Value).Distinct().ToList();
+            if (wantsAccountIds.Count > 0)
+            {
+                var ownedWantsAccountCount = await db.Accounts.CountAsync(a => wantsAccountIds.Contains(a.Id) && a.CoupleId == coupleId, ct);
+                if (ownedWantsAccountCount != wantsAccountIds.Count)
+                {
+                    return Rejected(item, "Each member's Wants account must belong to your couple.");
+                }
+            }
+
+            // Not cross-validated against each other or the couple's WantsAllocationPercent here
+            // — see MemberWantsAllocations's own doc comment; that strict reconciliation is
+            // Distribute Money's job (DistributionService), not a saved-defaults constraint.
+            foreach (var allocation in memberWantsAllocations)
+            {
+                var member = activeMembers.First(m => m.UserId == allocation.UserId);
+                member.WantsAllocationPercent = allocation.WantsAllocationPercent;
+                member.WantsAccountId = allocation.WantsAccountId;
+            }
+        }
+
         couple.Nickname = payload.Nickname;
         couple.AnniversaryDate = payload.AnniversaryDate;
+        couple.BudgetAllocationPercent = payload.BudgetAllocationPercent;
+        couple.SavingsAllocationPercent = payload.SavingsAllocationPercent;
+        couple.WantsAllocationPercent = payload.WantsAllocationPercent;
+        couple.BudgetAccountId = payload.BudgetAccountId;
+        couple.SavingsAccountId = payload.SavingsAccountId;
         couple.UpdatedAt = clock.UtcNow;
         couple.UpdatedByUserId = currentUser.UserId;
         couple.Version += 1;
@@ -549,6 +719,23 @@ public class SyncService(
             return Rejected(item, "Invalid transaction type.");
         }
 
+        if (payload.Type == TransactionType.IncomeAllocation)
+        {
+            // System-generated only — see the type's own doc comment. A client can never create
+            // or edit one directly; it exists solely as DistributionService's record of a
+            // distribution bucket landing in its account.
+            return Rejected(item, "This transaction type can only be created by distributing income.");
+        }
+
+        if (payload.Type == TransactionType.LoanPayment)
+        {
+            // System-generated only, same reasoning as IncomeAllocation above — it exists solely
+            // as LoanService.PayAsync's record of a loan payment, which needs the dedicated
+            // endpoint's synchronous balance/overpayment/idempotency checks that a generic sync
+            // push can't provide.
+            return Rejected(item, "This transaction type can only be created by paying a loan.");
+        }
+
         if (payload.Amount <= 0)
         {
             return Rejected(item, "Amount must be greater than zero.");
@@ -571,10 +758,57 @@ public class SyncService(
                 : "Invalid category.");
         }
 
+        var isSavingsMovement = payload.Type is TransactionType.SavingsContribution or TransactionType.SavingsWithdrawal;
+        if (isSavingsMovement)
+        {
+            if (payload.SavingsGoalId is null)
+            {
+                return Rejected(item, "A savings contribution or withdrawal requires a savings goal.");
+            }
+            var goalExists = await db.SavingsGoals.AnyAsync(g => g.Id == payload.SavingsGoalId && g.CoupleId == coupleId, ct);
+            if (!goalExists)
+            {
+                return Rejected(item, "Savings goal must belong to your couple.");
+            }
+        }
+        else if (payload.SavingsGoalId is not null)
+        {
+            return Rejected(item, "Only a savings contribution or withdrawal may reference a savings goal.");
+        }
+
+        // LoanPayment itself is rejected above (system-generated only), so the only way this is
+        // ever reached is a non-LoanPayment type — LoanId must always be null on that path. Kept
+        // as its own explicit check (rather than relying solely on the rejection above) so this
+        // stays correct even if that rejection is ever loosened.
+        if (payload.LoanId is not null)
+        {
+            return Rejected(item, "Only a loan payment may reference a loan.");
+        }
+
         var sourceAccount = await db.Accounts.FirstOrDefaultAsync(a => a.Id == payload.AccountId && a.CoupleId == coupleId, ct);
         if (sourceAccount is null)
         {
             return Rejected(item, "Account must belong to your couple.");
+        }
+
+        if (payload.Type == TransactionType.Expense)
+        {
+            // Server-side enforcement that a plain expense can never push an Ours account
+            // negative — reuses the exact same MoneyCalculator.CalculateAccountBalance every
+            // other balance figure in this app already derives from, never a second balance
+            // system. Excludes the transaction being edited itself (when this push is an update
+            // touching the same account) so re-saving an unchanged or lowered amount never
+            // falsely rejects — the comparison is against what the balance would be *without*
+            // this transaction's current effect.
+            var otherTransactions = await db.Transactions
+                .Where(t => t.CoupleId == coupleId && !t.IsDeleted && t.Id != item.EntityId
+                    && (t.AccountId == sourceAccount.Id || t.DestinationAccountId == sourceAccount.Id))
+                .ToListAsync(ct);
+            var balanceBeforeThisExpense = MoneyCalculator.CalculateAccountBalance(sourceAccount.OpeningBalance, sourceAccount.Id, otherTransactions);
+            if (payload.Amount > balanceBeforeThisExpense)
+            {
+                return Rejected(item, "Insufficient balance.");
+            }
         }
 
         if (payload.Type == TransactionType.Transfer)
@@ -639,6 +873,8 @@ public class SyncService(
         existing.AccountId = payload.AccountId;
         existing.DestinationAccountId = payload.DestinationAccountId;
         existing.Category = payload.Category;
+        existing.SavingsGoalId = payload.SavingsGoalId;
+        existing.LoanId = payload.LoanId;
         existing.Description = payload.Description;
         existing.TransactionDate = payload.TransactionDate;
         existing.Notes = payload.Notes;
@@ -756,6 +992,247 @@ public class SyncService(
         existing.Month = payload.Month;
         existing.Amount = payload.Amount;
         existing.Currency = payload.Currency;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    /// <summary>Same create-vs-update-by-existence + soft-delete shape as Budget — no uniqueness rule here (a couple can have any number of goals).</summary>
+    private async Task<SyncPushResultItemDto> ApplySavingsGoalChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.SavingsGoals.FirstOrDefaultAsync(g => g.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's savings goals.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        SavingsGoalPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<SavingsGoalPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Name))
+        {
+            return Rejected(item, "Enter a name for this goal.");
+        }
+
+        if (payload.TargetAmount <= 0)
+        {
+            return Rejected(item, "Target amount must be greater than zero.");
+        }
+
+        if (payload.TargetAmount > MaxMoneyAmount)
+        {
+            return Rejected(item, "Target amount exceeds the maximum allowed.");
+        }
+
+        if (!IsValidCurrencyCode(payload.Currency))
+        {
+            return Rejected(item, "Invalid currency code.");
+        }
+
+        if (payload.AllocationPercent is < 0 or > 100)
+        {
+            return Rejected(item, "Allocation percent must be between 0 and 100.");
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new SavingsGoal
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.SavingsGoals.Add(existing);
+        }
+
+        existing.Name = payload.Name;
+        existing.TargetAmount = payload.TargetAmount;
+        existing.Currency = payload.Currency;
+        existing.AllocationPercent = payload.AllocationPercent;
+        existing.IsActive = payload.IsActive;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    /// <summary>Same create-vs-update-by-existence + soft-delete shape as SavingsGoal — a loan's own record is a plain synced entity; only *paying* one needs the dedicated LoanController/LoanService (see Loan's doc comment).</summary>
+    private async Task<SyncPushResultItemDto> ApplyLoanChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.Loans.FirstOrDefaultAsync(l => l.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's loans.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            // Soft-delete only — a loan's LoanPayment transactions (payment history) are never
+            // touched by this, so history survives regardless (see Loan's doc comment).
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        LoanPayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<LoanPayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Name))
+        {
+            return Rejected(item, "Enter a name for this loan.");
+        }
+
+        if (payload.OriginalAmount <= 0 || payload.OriginalAmount > MaxMoneyAmount)
+        {
+            return Rejected(item, "Original amount must be greater than zero and within the maximum allowed.");
+        }
+
+        if (payload.MonthlyPayment <= 0 || payload.MonthlyPayment > MaxMoneyAmount)
+        {
+            return Rejected(item, "Monthly payment must be greater than zero and within the maximum allowed.");
+        }
+
+        if (payload.TotalInstallments <= 0)
+        {
+            return Rejected(item, "Total installments must be at least 1.");
+        }
+
+        if (payload.FirstDueDate.Year is < 2000 or > 2100)
+        {
+            return Rejected(item, "Invalid first due date.");
+        }
+
+        if (!LoanFrequency.IsValid(payload.Frequency))
+        {
+            return Rejected(item, "Invalid repayment frequency.");
+        }
+
+        if (payload.FeesAmount is < 0 || payload.FeesAmount > MaxMoneyAmount)
+        {
+            return Rejected(item, "Fees amount must be zero or more, within the maximum allowed.");
+        }
+
+        if (!IsValidCurrencyCode(payload.Currency))
+        {
+            return Rejected(item, "Invalid currency code.");
+        }
+
+        var paymentAccountExists = await db.Accounts.AnyAsync(a => a.Id == payload.PaymentAccountId && a.CoupleId == coupleId, ct);
+        if (!paymentAccountExists)
+        {
+            return Rejected(item, "Payment account must belong to your couple.");
+        }
+
+        if (payload.OwnerUserId is Guid ownerUserId)
+        {
+            // Never trust the client's claim that a given user id is a member of this couple —
+            // same discipline already applied to Transaction.PaidByUserId.
+            var isActiveMember = await db.CoupleMembers
+                .AnyAsync(m => m.CoupleId == coupleId && m.UserId == ownerUserId && m.LeftAt == null, ct);
+            if (!isActiveMember)
+            {
+                return Rejected(item, "ownerUserId must be an active member of your couple.");
+            }
+        }
+
+        var now = clock.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new Loan
+            {
+                Id = item.EntityId,
+                CoupleId = coupleId,
+                CreatedByUserId = currentUser.UserId,
+                CreatedAt = now,
+                Version = 0, // bumped to 1 below, alongside the update-path's bump — one place sets it
+            };
+            db.Loans.Add(existing);
+        }
+
+        existing.Name = payload.Name;
+        existing.Provider = payload.Provider;
+        existing.OriginalAmount = payload.OriginalAmount;
+        existing.MonthlyPayment = payload.MonthlyPayment;
+        existing.TotalInstallments = payload.TotalInstallments;
+        existing.FirstDueDate = payload.FirstDueDate;
+        existing.Frequency = payload.Frequency;
+        existing.FeesAmount = payload.FeesAmount;
+        existing.Currency = payload.Currency;
+        existing.PaymentAccountId = payload.PaymentAccountId;
+        existing.OwnerUserId = payload.OwnerUserId;
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;
         existing.Version += 1;

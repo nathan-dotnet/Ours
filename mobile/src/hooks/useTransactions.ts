@@ -15,6 +15,17 @@ export function useTransactionsForMonth(coupleId: string | undefined, year: numb
   });
 }
 
+/** Every transaction for the couple, regardless of account or month — used where a fact (like a savings goal's progress) isn't scoped to a single account. */
+export function useTransactionsForCouple(coupleId: string | undefined) {
+  const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt);
+
+  return useQuery<Transaction[]>({
+    queryKey: ['money-transactions', 'couple', coupleId, lastSyncedAt],
+    queryFn: () => (coupleId ? transactionRepository.getAllForCouple(coupleId) : Promise.resolve([])),
+    enabled: Boolean(coupleId),
+  });
+}
+
 export function useTransactionsForAccount(accountId: string | undefined) {
   const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt);
 

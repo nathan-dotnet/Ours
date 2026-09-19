@@ -18,8 +18,12 @@ public interface IApplicationDbContext
     DbSet<Account> Accounts { get; }
     DbSet<Transaction> Transactions { get; }
     DbSet<Budget> Budgets { get; }
+    DbSet<SavingsGoal> SavingsGoals { get; }
+    DbSet<Loan> Loans { get; }
+    DbSet<Distribution> Distributions { get; }
     DbSet<VaultItem> VaultItems { get; }
     DbSet<MissMeInteraction> MissMeInteractions { get; }
+    DbSet<PushToken> PushTokens { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

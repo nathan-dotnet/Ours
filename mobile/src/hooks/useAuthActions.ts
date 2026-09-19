@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { coupleRepository } from '../repositories/coupleRepository';
 import { api } from '../services/api';
 import { disableBiometricLogin } from '../services/biometricAuth';
+import { unregisterPushToken } from '../services/pushNotifications';
 import { useAuthStore } from '../stores/authStore';
 import { triggerSync } from '../sync';
 import type { LoginFormValues, RegisterFormValues } from '../validation/auth';
@@ -48,6 +49,9 @@ export function useAuthActions() {
   );
 
   const logout = useCallback(async () => {
+    // Best-effort, same reasoning as api.logout just below it — a signed-out device should stop
+    // receiving notifications meant for this account, but a failure here must never block logout.
+    await unregisterPushToken();
     if (session) {
       try {
         await api.logout(session.refreshToken);

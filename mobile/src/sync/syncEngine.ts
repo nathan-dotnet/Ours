@@ -2,12 +2,23 @@ import { accountRepository, ACCOUNT_ENTITY_TYPE } from '../repositories/accountR
 import { budgetRepository, BUDGET_ENTITY_TYPE } from '../repositories/budgetRepository';
 import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
+import { loanRepository, LOAN_ENTITY_TYPE } from '../repositories/loanRepository';
+import { savingsGoalRepository, SAVINGS_GOAL_ENTITY_TYPE } from '../repositories/savingsGoalRepository';
 import { transactionRepository, TRANSACTION_ENTITY_TYPE } from '../repositories/transactionRepository';
 import { vaultRepository, VAULT_ITEM_ENTITY_TYPE } from '../repositories/vaultRepository';
 import { ApiError, api, isNetworkError } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useSyncStore } from '../stores/syncStore';
-import type { AccountPayload, BudgetPayload, CalendarEventPayload, CoupleProfilePayload, TransactionPayload, VaultItemPayload } from '../types/api';
+import type {
+  AccountPayload,
+  BudgetPayload,
+  CalendarEventPayload,
+  CoupleProfilePayload,
+  LoanPayload,
+  SavingsGoalPayload,
+  TransactionPayload,
+  VaultItemPayload,
+} from '../types/api';
 import type { SyncPushItemDto } from '../types/api';
 import { getDatabase } from '../database/db';
 import { syncQueueRepository } from './syncQueue';
@@ -131,6 +142,26 @@ async function pullRemote(): Promise<void> {
         coupleId,
         change.entityId,
         change.payload as BudgetPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === SAVINGS_GOAL_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await savingsGoalRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as SavingsGoalPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === LOAN_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await loanRepository.applyRemoteChange(
+        coupleId,
+        change.entityId,
+        change.payload as LoanPayload | null,
         change.updatedAt,
         change.updatedByUserId,
         change.version,

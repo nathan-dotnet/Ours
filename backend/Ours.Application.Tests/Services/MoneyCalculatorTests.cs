@@ -26,6 +26,15 @@ public class MoneyCalculatorTests
         IsDeleted = isDeleted,
     };
 
+    private static Transaction IncomeAllocation(Guid accountId, decimal amount) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = TransactionType.IncomeAllocation,
+        Amount = amount,
+        AccountId = accountId,
+        TransactionDate = new DateOnly(2026, 9, 1),
+    };
+
     private static Transaction Transfer(Guid from, Guid to, decimal amount, bool isDeleted = false) => new()
     {
         Id = Guid.NewGuid(),
@@ -101,6 +110,97 @@ public class MoneyCalculatorTests
         expense.AccountId = gcash; // simulates the edit
         Assert.Equal(10_000m, MoneyCalculator.CalculateAccountBalance(10_000m, bpi, [expense]));
         Assert.Equal(4_500m, MoneyCalculator.CalculateAccountBalance(5_000m, gcash, [expense]));
+    }
+
+    private static Transaction SavingsContribution(Guid accountId, Guid goalId, decimal amount, bool isDeleted = false) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = TransactionType.SavingsContribution,
+        Amount = amount,
+        AccountId = accountId,
+        SavingsGoalId = goalId,
+        TransactionDate = new DateOnly(2026, 9, 1),
+        IsDeleted = isDeleted,
+    };
+
+    private static Transaction SavingsWithdrawal(Guid accountId, Guid goalId, decimal amount) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = TransactionType.SavingsWithdrawal,
+        Amount = amount,
+        AccountId = accountId,
+        SavingsGoalId = goalId,
+        TransactionDate = new DateOnly(2026, 9, 1),
+    };
+
+    [Fact]
+    public void CalculateAccountBalance_SavingsContributionDecreasesTheSourceAccount_LikeAnExpense()
+    {
+        var account = Guid.NewGuid();
+        var goal = Guid.NewGuid();
+        var balance = MoneyCalculator.CalculateAccountBalance(10_000m, account, [SavingsContribution(account, goal, 3_000m)]);
+        Assert.Equal(7_000m, balance);
+    }
+
+    [Fact]
+    public void CalculateAccountBalance_SavingsWithdrawalIncreasesTheAccount_LikeIncome()
+    {
+        var account = Guid.NewGuid();
+        var goal = Guid.NewGuid();
+        var balance = MoneyCalculator.CalculateAccountBalance(7_000m, account, [SavingsWithdrawal(account, goal, 1_000m)]);
+        Assert.Equal(8_000m, balance);
+    }
+
+    [Fact]
+    public void CalculateAccountBalance_IncomeAllocationIncreasesTheAccount_LikeIncome()
+    {
+        var account = Guid.NewGuid();
+        var balance = MoneyCalculator.CalculateAccountBalance(0m, account, [IncomeAllocation(account, 25_000m)]);
+        Assert.Equal(25_000m, balance);
+    }
+
+    [Fact]
+    public void CalculateMonthlySpending_NeverCountsAnIncomeAllocation()
+    {
+        var account = Guid.NewGuid();
+        Assert.Equal(0m, MoneyCalculator.CalculateMonthlySpending([IncomeAllocation(account, 25_000m)], 2026, 9));
+    }
+
+    [Fact]
+    public void CalculateMonthlySpending_NeverCountsSavingsContributionsOrWithdrawals()
+    {
+        var acc = Guid.NewGuid();
+        var goal = Guid.NewGuid();
+        var transactions = new[] { SavingsContribution(acc, goal, 5_000m), SavingsWithdrawal(acc, goal, 1_000m) };
+
+        Assert.Equal(0m, MoneyCalculator.CalculateMonthlySpending(transactions, 2026, 9));
+    }
+
+    [Fact]
+    public void CalculateSavingsGoalBalance_SumsContributionsMinusWithdrawals_ForThatGoalOnly()
+    {
+        var acc = Guid.NewGuid();
+        var goal = Guid.NewGuid();
+        var otherGoal = Guid.NewGuid();
+        var transactions = new[]
+        {
+            SavingsContribution(acc, goal, 5_000m),
+            SavingsContribution(acc, goal, 3_000m),
+            SavingsWithdrawal(acc, goal, 1_000m),
+            SavingsContribution(acc, otherGoal, 9_999m), // a different goal — must not leak in
+        };
+
+        Assert.Equal(7_000m, MoneyCalculator.CalculateSavingsGoalBalance(goal, transactions));
+    }
+
+    [Fact]
+    public void CalculateSavingsGoalBalance_ExcludesDeletedContributions()
+    {
+        var acc = Guid.NewGuid();
+        var goal = Guid.NewGuid();
+        var transactions = new[] { SavingsContribution(acc, goal, 5_000m, isDeleted: true) };
+
+        Assert.Equal(0m, MoneyCalculator.CalculateSavingsGoalBalance(goal, transactions));
     }
 
     [Fact]

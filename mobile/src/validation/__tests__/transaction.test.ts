@@ -18,8 +18,13 @@ describe('expenseTransactionSchema', () => {
     expect(expenseTransactionSchema.safeParse(values({ amountText: '99999999999' })).success).toBe(false);
   });
 
-  it('rejects an invalid category (an income-only category is not valid for an expense)', () => {
-    expect(expenseTransactionSchema.safeParse(values({ category: 'Salary' })).success).toBe(false);
+  it('accepts a custom category not in the preset list — an open vocabulary, same as the backend', () => {
+    expect(expenseTransactionSchema.safeParse(values({ category: 'Date Night' })).success).toBe(true);
+  });
+
+  it('rejects an empty or over-length category', () => {
+    expect(expenseTransactionSchema.safeParse(values({ category: '' })).success).toBe(false);
+    expect(expenseTransactionSchema.safeParse(values({ category: 'x'.repeat(31) })).success).toBe(false);
   });
 
   it('requires an account to be chosen', () => {

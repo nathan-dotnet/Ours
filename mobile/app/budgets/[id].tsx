@@ -61,7 +61,7 @@ export default function EditBudgetScreen() {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#C97C6D" />
+          <ActivityIndicator color="#5B7FBE" />
         </View>
       </Screen>
     );
@@ -80,7 +80,7 @@ export default function EditBudgetScreen() {
   return (
     <Screen scroll>
       <BudgetForm
-        initialValues={{ category: budget.category as BudgetFormValues['category'], amountText: centsToAmountInput(budget.amount_cents) }}
+        initialValues={{ category: budget.category, amountText: centsToAmountInput(budget.amount_cents) }}
         categoryLocked
         submitLabel="Save changes"
         isSubmitting={isSubmitting}

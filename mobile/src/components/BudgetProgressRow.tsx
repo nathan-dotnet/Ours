@@ -1,4 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
+import { ProgressBar, type ProgressTone } from './ProgressBar';
+import { StatusBadge, type StatusTone } from './StatusBadge';
+import { getCategoryIcon } from '../utils/moneyActivity';
 import { formatMoney } from '../utils/money';
 
 interface BudgetProgressRowProps {
@@ -7,34 +10,34 @@ interface BudgetProgressRowProps {
   budgetCents: number;
   currency: string;
   onPress: () => void;
-  /**
-   * False for the last row. These rows carry no card/shadow of their own — one budget category
-   * sitting in its own separately-shadowed card, directly under the Spent/Budget/Remaining
-   * card, read as two near-identical stacked cards. money.tsx now wraps the whole list in one
-   * shared card, same "one container, divided rows" treatment as that stats strip.
-   */
   showDivider?: boolean;
 }
 
-/** A simple progress bar per category budget — no charts, per the Phase 3 spec's "Do not build advanced charts". */
+/** Subtle spending status per category — never a loud badge, just a small label + dot (see StatusBadge). */
+function statusFor(percent: number): { label: string; tone: StatusTone; barTone: ProgressTone } {
+  if (percent >= 100) return { label: 'Over budget', tone: 'error', barTone: 'error' };
+  if (percent >= 80) return { label: 'Almost at limit', tone: 'warning', barTone: 'warning' };
+  return { label: 'On track', tone: 'success', barTone: 'accent' };
+}
+
+/** One category's spending, as a compact row — icon, name, amounts, a progress bar, and a subtle status — no card of its own; a parent list groups a whole set of these with hairline dividers. */
 export function BudgetProgressRow({ category, spentCents, budgetCents, currency, onPress, showDivider = true }: BudgetProgressRowProps) {
   const percent = budgetCents > 0 ? Math.round((spentCents / budgetCents) * 100) : 0;
-  const isOverBudget = spentCents > budgetCents;
-  const barWidth = Math.min(percent, 100);
+  const status = statusFor(percent);
 
   return (
-    <Pressable onPress={onPress} className={`gap-1.5 px-4 py-3 ${showDivider ? 'border-b border-ink/10' : ''}`}>
+    <Pressable onPress={onPress} className={`gap-1.5 py-3 ${showDivider ? 'border-b border-border' : ''}`}>
       <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-medium text-ink">{category}</Text>
-        <Text className={`text-sm font-medium ${isOverBudget ? 'text-warning' : 'text-clay'}`}>
+        <View className="flex-row items-center gap-2">
+          <Text className="text-base">{getCategoryIcon(category)}</Text>
+          <Text className="text-sm font-medium text-textPrimary">{category}</Text>
+        </View>
+        <Text className="text-sm font-medium text-textSecondary">
           {formatMoney(spentCents, currency)} / {formatMoney(budgetCents, currency)}
         </Text>
       </View>
-      {/* bg-cream was nearly invisible against this card's own bg-blush/60 fill — bg-ink/10 keeps a visible groove at any fill level, including 0%. */}
-      <View className="h-2 overflow-hidden rounded-full bg-ink/10">
-        <View className={`h-2 rounded-full ${isOverBudget ? 'bg-warning' : 'bg-rose'}`} style={{ width: `${barWidth}%` }} />
-      </View>
-      {isOverBudget ? <Text className="text-xs font-medium text-warning">Over budget by {formatMoney(spentCents - budgetCents, currency)}</Text> : null}
+      <ProgressBar percent={percent} tone={status.barTone} />
+      <StatusBadge label={status.label} tone={status.tone} />
     </Pressable>
   );
 }

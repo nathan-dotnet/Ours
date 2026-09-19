@@ -5,6 +5,16 @@ export interface Couple {
   invite_code: string;
   nickname: string | null;
   anniversary_date: string | null; // ISO date (YYYY-MM-DD)
+  // The couple's saved default income-allocation plan (see the Money Calculator) — all four
+  // null until they've saved one. Percentages are 0-100; amount_cents are always derived from
+  // combined income at read time, never stored — see utils/allocationCalculations.ts. Wants has
+  // no couple-level account of its own — it's split between the couple's members instead, each
+  // with their own share and destination account (see CoupleMember below).
+  budget_allocation_percent: number | null;
+  savings_allocation_percent: number | null;
+  wants_allocation_percent: number | null;
+  budget_account_id: string | null;
+  savings_account_id: string | null;
   created_at: string;
   updated_at: string;
   updated_by_user_id: string;
@@ -18,6 +28,17 @@ export interface CoupleMember {
   user_id: string;
   display_name: string;
   joined_at: string;
+  /** This member's own self-reported monthly income (Calculator's "Your/Partner Income") — null until entered. Integer cents. */
+  monthly_income_cents: number | null;
+  /**
+   * This member's own share (0-100) of the couple's Wants allocation — e.g. "Mine 12%, hers 8%"
+   * of a 20% Wants bucket. Unlike monthly_income_cents, planning the whole split is one joint
+   * action, so either partner's device can set both members' share/account at once (see
+   * coupleRepository's updateProfileLocally). Null until configured. Must sum to exactly the
+   * couple's wants_allocation_percent — enforced at Distribute Money time, not here.
+   */
+  wants_allocation_percent: number | null;
+  wants_account_id: string | null;
 }
 
 export interface CalendarEvent {
@@ -56,16 +77,20 @@ export interface Account {
   is_deleted: number;
 }
 
-/** One movement of money — Expense, Income, or Transfer. amount_cents is always positive; direction is implied by type + account_id/destination_account_id. */
+/** One movement of money — Expense, Income, Transfer, SavingsContribution, SavingsWithdrawal, IncomeAllocation, or LoanPayment. amount_cents is always positive; direction is implied by type + account_id/destination_account_id. */
 export interface Transaction {
   id: string;
   couple_id: string;
-  type: string; // 'Expense' | 'Income' | 'Transfer'
+  type: string; // 'Expense' | 'Income' | 'Transfer' | 'SavingsContribution' | 'SavingsWithdrawal' | 'IncomeAllocation' | 'LoanPayment'
   amount_cents: number; // integer minor units — never a float; see utils/money.ts
   currency: string;
   account_id: string; // the affected account (Expense/Income) or source account (Transfer)
   destination_account_id: string | null; // only for Transfer
-  category: string | null; // null for Transfer
+  category: string | null; // null for Transfer, SavingsContribution, or SavingsWithdrawal
+  /** Only for SavingsContribution/SavingsWithdrawal — which goal this movement is credited to (contribution) or debited from (withdrawal). */
+  savings_goal_id: string | null;
+  /** Only for LoanPayment — which loan this payment reduces. */
+  loan_id: string | null;
   description: string | null;
   transaction_date: string; // ISO date (YYYY-MM-DD) — date-only, separate from created_at
   notes: string | null;
@@ -87,6 +112,63 @@ export interface Budget {
   month: number; // 1-12
   amount_cents: number;
   currency: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
+/**
+ * A couple's own named savings goal (Emergency Fund, MP2, Travel, or anything they type).
+ * Has no stored "current amount" — same reasoning as Account's balance: it's always the sum of
+ * every non-deleted SavingsContribution (+)/SavingsWithdrawal (-) Transaction linked to it via
+ * savings_goal_id — see utils/moneyCalculations.ts's calculateSavingsGoalBalance.
+ */
+export interface SavingsGoal {
+  id: string;
+  couple_id: string;
+  name: string;
+  target_amount_cents: number;
+  currency: string;
+  /** This goal's share (0-100) of the monthly Savings allocation during "Distribute Money" — null/0 means manual-only. */
+  allocation_percent: number | null;
+  is_active: number; // 0 | 1
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
+/**
+ * A couple's own liability/obligation — Shopee PayLater, TikTok PayLater, a credit card
+ * installment, a personal loan, or anything else they type. Has no stored remaining balance,
+ * installments-paid, status, or per-installment schedule row — same "derive, don't store"
+ * reasoning as Account's balance and SavingsGoal's progress: first_due_date + total_installments +
+ * monthly_payment_cents + original_amount_cents is enough to *generate* the fixed schedule, and
+ * matching it against every non-deleted LoanPayment Transaction linked via loan_id (a waterfall
+ * allocation) derives each installment's progress — see utils/loanSchedule.ts.
+ */
+export interface Loan {
+  id: string;
+  couple_id: string;
+  name: string;
+  provider: string | null;
+  original_amount_cents: number;
+  monthly_payment_cents: number;
+  total_installments: number;
+  /** The date installment 1 is due (ISO "YYYY-MM-DD") — anchors the whole schedule; see utils/loanSchedule.ts's generateLoanSchedule. */
+  first_due_date: string;
+  /** Only "Monthly" is supported today — see utils/loanSchedule.ts. */
+  frequency: string;
+  fees_amount_cents: number | null;
+  currency: string;
+  payment_account_id: string;
+  /** Which couple member this loan belongs to — null means Joint (shared), same "null = unspecified/shared" convention as Transaction.paid_by_user_id. */
+  owner_user_id: string | null;
   created_by_user_id: string;
   created_at: string;
   updated_at: string;

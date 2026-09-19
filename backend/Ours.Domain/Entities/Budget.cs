@@ -14,7 +14,11 @@ public class Budget : ISyncableEntity
 
     public Guid CoupleId { get; set; }
 
-    /// <summary>One of <see cref="TransactionCategory"/>.ExpenseCategories — budgets are always against spending, never income or transfers.</summary>
+    /// <summary>
+    /// A preset from <see cref="TransactionCategory"/>.ExpenseCategories, or a couple's own custom
+    /// name — see <see cref="TransactionCategory"/>. Budgets are always against spending, never
+    /// income or transfers.
+    /// </summary>
     public string Category { get; set; } = TransactionCategory.Other;
 
     public int Year { get; set; }

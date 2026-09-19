@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Ours.Application.Abstractions;
 using Ours.Application.Common;
 using Ours.Application.DTOs.MissMe;
 using Ours.Application.Services;
@@ -12,7 +13,7 @@ namespace Ours.Application.Tests.Services;
 public class MissMeServiceTests
 {
     private static async Task<(MissMeService Service, FakeDateTimeProvider Clock, Guid AliceId, Guid BobId, AppDbContext Db)> BuildPairedCoupleAsync(
-        FakeCurrentUserService currentUser, bool withPartner = true)
+        FakeCurrentUserService currentUser, bool withPartner = true, IPushNotificationSender? pushSender = null)
     {
         var db = TestDbContextFactory.Create();
         var clock = new FakeDateTimeProvider();
@@ -46,7 +47,7 @@ public class MissMeServiceTests
         currentUser.UserId = aliceId;
         currentUser.CoupleId = couple.Id;
 
-        return (new MissMeService(db, currentUser, clock), clock, aliceId, bobId, db);
+        return (new MissMeService(db, currentUser, clock, pushSender ?? new FakePushNotificationSender()), clock, aliceId, bobId, db);
     }
 
     [Fact]
@@ -64,6 +65,61 @@ public class MissMeServiceTests
         Assert.Equal(bobId, response.Interaction.ReceiverUserId);
         Assert.Equal(MissMeInteractionType.MissMe, response.Interaction.Type);
         Assert.Equal(clock.UtcNow + MissMeService.Cooldown, response.NextAvailableAt);
+    }
+
+    [Fact]
+    public async Task SendAsync_MissMe_HasNoPushToSend_WhenReceiverHasNoRegisteredDevice()
+    {
+        // The common case in these tests — nobody has registered a push token — must not throw
+        // or otherwise misbehave; it's simply nothing to notify.
+        var pushSender = new FakePushNotificationSender();
+        var currentUser = new FakeCurrentUserService();
+        var (service, _, _, _, _) = await BuildPairedCoupleAsync(currentUser, pushSender: pushSender);
+
+        var response = await service.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
+
+        Assert.True(response.Sent);
+        Assert.Empty(pushSender.Calls);
+    }
+
+    [Fact]
+    public async Task SendAsync_MissMe_SendsAPushToTheReceivers_RegisteredDevice_OnlyAfterTheInteractionIsSaved()
+    {
+        var pushSender = new FakePushNotificationSender();
+        var currentUser = new FakeCurrentUserService();
+        var (service, _, aliceId, bobId, db) = await BuildPairedCoupleAsync(currentUser, pushSender: pushSender);
+        db.PushTokens.Add(new PushToken { Id = Guid.NewGuid(), UserId = bobId, Token = "ExponentPushToken[bob]", Platform = "ios" });
+        await db.SaveChangesAsync();
+
+        var response = await service.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
+
+        var call = Assert.Single(pushSender.Calls);
+        Assert.Equal(["ExponentPushToken[bob]"], call.Tokens);
+        Assert.Equal("Little Moment 💙", call.Title);
+        Assert.Equal("Alice misses you.", call.Body);
+        Assert.Equal(response.Interaction!.Id.ToString(), call.Data?["interactionId"]);
+        // Alice's own device (the sender) must never be notified about her own gesture.
+        Assert.DoesNotContain(aliceId.ToString(), call.Tokens);
+    }
+
+    [Fact]
+    public async Task SendAsync_MissYouToo_SendsAPushToTheOriginalSender_WhenTheyHaveARegisteredDevice()
+    {
+        var pushSender = new FakePushNotificationSender();
+        var aliceUser = new FakeCurrentUserService();
+        var (aliceService, clock, aliceId, bobId, db) = await BuildPairedCoupleAsync(aliceUser, pushSender: pushSender);
+        db.PushTokens.Add(new PushToken { Id = Guid.NewGuid(), UserId = aliceId, Token = "ExponentPushToken[alice]", Platform = "android" });
+        await db.SaveChangesAsync();
+
+        var missMe = await aliceService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
+        pushSender.Calls.Clear(); // only interested in the reply's push, not MissMe's own (Bob has no token anyway)
+
+        var bobService = new MissMeService(db, new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId }, clock, pushSender);
+        await bobService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissYouToo, InResponseToId = missMe.Interaction!.Id });
+
+        var call = Assert.Single(pushSender.Calls);
+        Assert.Equal(["ExponentPushToken[alice]"], call.Tokens);
+        Assert.Equal("Bob misses you too.", call.Body);
     }
 
     [Fact]
@@ -120,7 +176,7 @@ public class MissMeServiceTests
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid(), CoupleId = null };
         var db = TestDbContextFactory.Create();
-        var service = new MissMeService(db, currentUser, new FakeDateTimeProvider());
+        var service = new MissMeService(db, currentUser, new FakeDateTimeProvider(), new FakePushNotificationSender());
 
         await Assert.ThrowsAsync<ForbiddenAppException>(() => service.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe }));
     }
@@ -134,7 +190,7 @@ public class MissMeServiceTests
         var missMe = await aliceService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
 
         var bobUser = new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId };
-        var bobService = new MissMeService(db, bobUser, clock);
+        var bobService = new MissMeService(db, bobUser, clock, new FakePushNotificationSender());
 
         var reply = await bobService.SendAsync(new MissMeSendRequestDto
         {
@@ -155,7 +211,7 @@ public class MissMeServiceTests
         var (aliceService, clock, _, bobId, db) = await BuildPairedCoupleAsync(aliceUser);
         var missMe = await aliceService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
 
-        var bobService = new MissMeService(db, new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId }, clock);
+        var bobService = new MissMeService(db, new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId }, clock, new FakePushNotificationSender());
         var firstReply = await bobService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissYouToo, InResponseToId = missMe.Interaction!.Id });
         var secondReply = await bobService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissYouToo, InResponseToId = missMe.Interaction.Id });
 
@@ -192,7 +248,7 @@ public class MissMeServiceTests
         var missMe = await aliceService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissMe });
 
         var bobUser = new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId };
-        var bobService = new MissMeService(db, bobUser, clock);
+        var bobService = new MissMeService(db, bobUser, clock, new FakePushNotificationSender());
 
         var statusBeforeReply = await bobService.GetStatusAsync();
         Assert.NotNull(statusBeforeReply.PendingFromPartner);
@@ -221,7 +277,7 @@ public class MissMeServiceTests
         Assert.Equal(sent.NextAvailableAt, afterSend.NextAvailableAt);
 
         clock.UtcNow = clock.UtcNow.AddMinutes(1);
-        var bobService = new MissMeService(db, new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId }, clock);
+        var bobService = new MissMeService(db, new FakeCurrentUserService { UserId = bobId, CoupleId = aliceUser.CoupleId }, clock, new FakePushNotificationSender());
         var reply = await bobService.SendAsync(new MissMeSendRequestDto { Type = MissMeInteractionType.MissYouToo, InResponseToId = sent.Interaction!.Id });
 
         var history = (await aliceService.GetStatusAsync()).RecentHistory;
@@ -235,7 +291,7 @@ public class MissMeServiceTests
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid(), CoupleId = null };
         var db = TestDbContextFactory.Create();
-        var service = new MissMeService(db, currentUser, new FakeDateTimeProvider());
+        var service = new MissMeService(db, currentUser, new FakeDateTimeProvider(), new FakePushNotificationSender());
 
         await Assert.ThrowsAsync<ForbiddenAppException>(() => service.GetStatusAsync());
     }

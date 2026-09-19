@@ -18,6 +18,12 @@ export interface CoupleMemberDto {
   userId: string;
   displayName: string;
   joinedAt: string;
+  /** This member's own self-reported monthly income — null until they've entered one. */
+  monthlyIncome: number | null;
+  /** This member's own share (0-100) of the couple's Wants allocation — e.g. "Mine 12%, hers 8%" of a 20% Wants bucket. Null until configured. */
+  wantsAllocationPercent: number | null;
+  /** Where this member's Wants share is credited on Distribute Money. Null until configured. */
+  wantsAccountId: string | null;
 }
 
 export interface CoupleDto {
@@ -25,6 +31,11 @@ export interface CoupleDto {
   inviteCode: string;
   nickname: string | null;
   anniversaryDate: string | null;
+  budgetAllocationPercent: number | null;
+  savingsAllocationPercent: number | null;
+  wantsAllocationPercent: number | null;
+  budgetAccountId: string | null;
+  savingsAccountId: string | null;
   updatedAt: string;
   updatedByUserId: string;
   version: number;
@@ -42,10 +53,36 @@ export interface LeaveCoupleResponseDto {
   left: boolean;
 }
 
+/** One member's Wants share, as pushed in a couple_profile change — mirrors MemberWantsAllocationInputDto. */
+export interface MemberWantsAllocationInput {
+  userId: string;
+  wantsAllocationPercent?: number | null;
+  wantsAccountId?: string | null;
+}
+
 /** Shape of the "couple_profile" sync payload — mirrors the backend's CoupleProfilePayloadDto. */
 export interface CoupleProfilePayload {
   nickname: string | null;
   anniversaryDate: string | null;
+  /** The couple's saved default income-allocation plan — see the Money Calculator and Couple.budget_allocation_percent etc. All five null until saved once. */
+  budgetAllocationPercent?: number | null;
+  savingsAllocationPercent?: number | null;
+  wantsAllocationPercent?: number | null;
+  budgetAccountId?: string | null;
+  savingsAccountId?: string | null;
+  /**
+   * Push-only, self-scoped: applied to the caller's own CoupleMember row, never the partner's —
+   * see coupleRepository.ts. Absent on a pull; each member's income is already carried
+   * per-member in `members` there instead.
+   */
+  myMonthlyIncome?: number | null;
+  /**
+   * Push-only, joint (NOT self-scoped): planning the whole Wants split is one action typically
+   * done from a single device in one sitting, so this can set either/both members' share and
+   * account at once — see coupleRepository.ts's updateProfileLocally. Absent on a pull; each
+   * member's Wants share is already carried per-member in `members` there instead.
+   */
+  memberWantsAllocations?: MemberWantsAllocationInput[];
   /**
    * Server-authoritative current membership — only ever present on a *pulled* change (the server
    * populates it in SyncService.PullAsync; a push never sets or needs it). This is what lets a
@@ -95,6 +132,10 @@ export interface TransactionPayload {
   accountId: string;
   destinationAccountId?: string | null;
   category?: string | null;
+  /** Only for SavingsContribution/SavingsWithdrawal — which goal this movement is credited to/debited from. */
+  savingsGoalId?: string | null;
+  /** Only for LoanPayment — which loan this payment reduces. In practice a client never pushes a LoanPayment directly (system-generated only, via POST /api/loans/{id}/payments); this only ever arrives on a pull. */
+  loanId?: string | null;
   description: string | null;
   transactionDate: string; // ISO date (YYYY-MM-DD)
   notes: string | null;
@@ -110,6 +151,34 @@ export interface BudgetPayload {
   month: number;
   amount: number;
   currency: string;
+}
+
+/** Shape of the "savings_goal" sync payload — mirrors the backend's SavingsGoalPayloadDto. */
+export interface SavingsGoalPayload {
+  name: string;
+  targetAmount: number;
+  currency: string;
+  /** This goal's share (0-100) of the monthly Savings allocation during "Distribute Money" — null/0 means manual-only. */
+  allocationPercent?: number | null;
+  isActive: boolean;
+}
+
+/** Shape of the "loan" sync payload — mirrors the backend's LoanPayloadDto. Never carries a remaining balance/installments/status — those are derived, see utils/loanSchedule.ts. */
+export interface LoanPayload {
+  name: string;
+  provider?: string | null;
+  originalAmount: number;
+  monthlyPayment: number;
+  totalInstallments: number;
+  /** The date installment 1 is due (ISO "YYYY-MM-DD") — anchors the schedule. */
+  firstDueDate: string;
+  /** Only "Monthly" is valid today. */
+  frequency: string;
+  feesAmount?: number | null;
+  currency: string;
+  paymentAccountId: string;
+  /** Null means Joint. */
+  ownerUserId?: string | null;
 }
 
 export type SyncOperationDto = 'CREATE' | 'UPDATE' | 'DELETE';
@@ -213,4 +282,118 @@ export interface MissMeSendResponseDto {
   sent: boolean;
   nextAvailableAt: string | null;
   interaction: MissMeInteractionDto | null;
+}
+
+/** One savings goal's share of a single "Distribute Money" action — see DistributeMoneyRequestDto. */
+export interface SavingsGoalAllocationInputDto {
+  savingsGoalId: string;
+  /** This goal's share (0-100) of the Savings amount for *this* distribution — every entry must sum to exactly 100. */
+  allocationPercent: number;
+}
+
+/**
+ * One member's share of the Wants bucket for a single "Distribute Money" action — mirrors the
+ * backend's WantsAllocationInputDto. Wants has no pooled account of its own (unlike Budget and
+ * Savings): every member listed here gets their own real IncomeAllocation transaction, credited
+ * straight to their own account. Every entry's allocationPercent must sum to exactly 100.
+ */
+export interface WantsAllocationInputDto {
+  userId: string;
+  allocationPercent: number;
+  accountId: string;
+}
+
+/** Request to execute one "Distribute Money" action — mirrors the backend's DistributeMoneyRequestDto. */
+export interface DistributeMoneyRequestDto {
+  year: number;
+  month: number;
+  combinedIncome: number;
+  currency: string;
+  budgetPercent: number;
+  /** Where the Budget share is credited — a real IncomeAllocation transaction is created against this account. */
+  budgetAccountId: string;
+  savingsPercent: number;
+  /** Where the Savings share is credited, then swept into goals via SavingsContribution transactions. */
+  savingsAccountId: string;
+  savingsGoalAllocations: SavingsGoalAllocationInputDto[];
+  wantsPercent: number;
+  /** Split of the Wants amount between the couple's members — every entry credited to its own account. Must sum to exactly 100. */
+  wantsAllocations: WantsAllocationInputDto[];
+  /** Explicit confirmation to create another distribution for a period that already has one. */
+  force?: boolean;
+}
+
+export interface DistributionDto {
+  id: string;
+  year: number;
+  month: number;
+  combinedIncome: number;
+  currency: string;
+  budgetPercent: number;
+  budgetAmount: number;
+  budgetAccountId: string | null;
+  savingsPercent: number;
+  savingsAmount: number;
+  savingsAccountId: string | null;
+  wantsPercent: number;
+  wantsAmount: number;
+  createdAt: string;
+  createdByUserId: string;
+}
+
+export interface DistributionStatusResponseDto {
+  alreadyDistributed: boolean;
+  distributionsForPeriod: DistributionDto[];
+  recentHistory: DistributionDto[];
+}
+
+export interface DistributeMoneyResponseDto {
+  distribution: DistributionDto;
+}
+
+/**
+ * A loan plus its *derived* figures — mirrors the backend's LoanDto. Only ever returned by
+ * POST /api/loans/{id}/payments; every other read of a loan happens through the generic sync
+ * pull (LoanPayload) plus the mobile app deriving these same figures locally — see
+ * utils/loanSchedule.ts.
+ */
+export interface LoanDto {
+  id: string;
+  name: string;
+  provider: string | null;
+  originalAmount: number;
+  monthlyPayment: number;
+  totalInstallments: number;
+  firstDueDate: string;
+  frequency: string;
+  feesAmount: number | null;
+  currency: string;
+  paymentAccountId: string;
+  ownerUserId: string | null;
+  paidAmount: number;
+  remainingBalance: number;
+  installmentsPaid: number;
+  remainingInstallments: number;
+  /** Null once the loan is fully paid off. */
+  nextPaymentAmount: number | null;
+  nextPaymentDueDate: string | null;
+  /** 'Active' | 'PaidOff' */
+  status: string;
+}
+
+/** Request to record one payment toward a loan — mirrors the backend's LoanPaymentRequestDto. */
+export interface LoanPaymentRequestDto {
+  /** Device-generated (see the mobile UUID convention) — becomes the created Transaction's id. Sending the *same* paymentId twice (a double tap, a retried request) is what makes this idempotent — see useLoans.ts's usePayLoan. */
+  paymentId: string;
+  amount: number;
+  accountId: string;
+  /** Defaults to today (server clock) when omitted. */
+  paymentDate?: string | null;
+  description?: string | null;
+  notes?: string | null;
+}
+
+export interface LoanPaymentResponseDto {
+  loan: LoanDto;
+  transactionId: string;
 }

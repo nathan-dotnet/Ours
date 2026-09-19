@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -225,4 +225,117 @@ export const MIGRATION_V6 = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_vault_items_couple_id ON vault_items (couple_id);
+`;
+
+/**
+ * Statements applied when moving from schema version 6 -> 7: adds the Money Calculator (Savings
+ * goals + the couple's saved income-allocation plan + each partner's own income).
+ *
+ * Percent columns are REAL (SQLite has no dedicated decimal type) — fine for a config/display
+ * value like this; the actual peso math always goes through utils/money.ts's integer-cents
+ * helpers, and the server re-derives every distributed amount itself rather than trusting a
+ * client-computed one (see DistributionService on the backend).
+ */
+export const MIGRATION_V7 = `
+  ALTER TABLE couples ADD COLUMN budget_allocation_percent REAL;
+  ALTER TABLE couples ADD COLUMN savings_allocation_percent REAL;
+  ALTER TABLE couples ADD COLUMN wants_allocation_percent REAL;
+  ALTER TABLE couples ADD COLUMN budget_account_id TEXT;
+  ALTER TABLE couples ADD COLUMN savings_account_id TEXT;
+  ALTER TABLE couples ADD COLUMN wants_account_id TEXT;
+
+  ALTER TABLE couple_members ADD COLUMN monthly_income_cents INTEGER;
+
+  ALTER TABLE money_transactions ADD COLUMN savings_goal_id TEXT;
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_savings_goal_id ON money_transactions (savings_goal_id);
+
+  CREATE TABLE IF NOT EXISTS savings_goals (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    target_amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    allocation_percent REAL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_savings_goals_couple_id ON savings_goals (couple_id);
+`;
+
+/**
+ * Statements applied when moving from schema version 7 -> 8: splits the Wants allocation between
+ * the couple's members (Mine/Hers — see the Money Calculator). Wants never had a *pooled* Ours
+ * account of its own to begin with (unlike Budget/Savings), so `couples.wants_account_id` is
+ * dropped outright rather than migrated — each member gets their own share/account instead,
+ * mirroring `couple_members.monthly_income_cents`'s self-scoped shape from MIGRATION_V7.
+ */
+export const MIGRATION_V8 = `
+  ALTER TABLE couples DROP COLUMN wants_account_id;
+
+  ALTER TABLE couple_members ADD COLUMN wants_allocation_percent REAL;
+  ALTER TABLE couple_members ADD COLUMN wants_account_id TEXT;
+`;
+
+/**
+ * Statements applied when moving from schema version 8 -> 9: adds Loans / Pay-Later tracking
+ * (Shopee PayLater, TikTok PayLater, credit card installments, personal loans, etc.).
+ *
+ * Like `savings_goals`, `loans` deliberately has no remaining-balance/installments-paid/status
+ * columns — those are always derived from `original_amount_cents` minus the sum of every
+ * non-deleted LoanPayment transaction linked to it via the new `money_transactions.loan_id`
+ * column (see utils/moneyCalculations.ts's calculateLoanPaidAmount), the same "derive, don't
+ * store" philosophy as every other balance in this schema.
+ */
+export const MIGRATION_V9 = `
+  ALTER TABLE money_transactions ADD COLUMN loan_id TEXT;
+  CREATE INDEX IF NOT EXISTS idx_money_transactions_loan_id ON money_transactions (loan_id);
+
+  CREATE TABLE IF NOT EXISTS loans (
+    id TEXT PRIMARY KEY NOT NULL,
+    couple_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    provider TEXT,
+    original_amount_cents INTEGER NOT NULL,
+    monthly_payment_cents INTEGER NOT NULL,
+    total_installments INTEGER NOT NULL,
+    due_day INTEGER NOT NULL,
+    fees_amount_cents INTEGER,
+    currency TEXT NOT NULL,
+    payment_account_id TEXT NOT NULL,
+    owner_user_id TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_loans_couple_id ON loans (couple_id);
+`;
+
+/**
+ * Statements applied when moving from schema version 9 -> 10: replaces `loans.due_day` (a bare
+ * recurring day-of-month, with no way to say *which* month installment 1 was due) with a real
+ * `first_due_date`, plus a `frequency` column (only "Monthly" exists today) — see
+ * utils/loanSchedule.ts's generateLoanSchedule, which needs an anchor date to build the fixed
+ * per-installment schedule at all. Unlike every earlier migration here, this one needs a JS-side
+ * backfill step (SQLite has no server-side date-arithmetic function to lean on the way the
+ * backend's migration used Postgres' date_trunc) — see migrateDatabase's own `version < 10`
+ * block, which runs `MIGRATION_V10_ADD_COLUMNS`, then the backfill loop, then
+ * `MIGRATION_V10_DROP_DUE_DAY`, in that order.
+ */
+export const MIGRATION_V10_ADD_COLUMNS = `
+  ALTER TABLE loans ADD COLUMN first_due_date TEXT;
+  ALTER TABLE loans ADD COLUMN frequency TEXT NOT NULL DEFAULT 'Monthly';
+`;
+
+export const MIGRATION_V10_DROP_DUE_DAY = `
+  ALTER TABLE loans DROP COLUMN due_day;
 `;

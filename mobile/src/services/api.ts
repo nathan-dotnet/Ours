@@ -4,7 +4,12 @@ import type {
   AuthResponseDto,
   CoupleActionResponseDto,
   CoupleDto,
+  DistributeMoneyRequestDto,
+  DistributeMoneyResponseDto,
+  DistributionStatusResponseDto,
   LeaveCoupleResponseDto,
+  LoanPaymentRequestDto,
+  LoanPaymentResponseDto,
   MessageResponseDto,
   MissMeInteractionKind,
   MissMeSendResponseDto,
@@ -156,6 +161,29 @@ export const api = {
   /** Sends a MissMe (subject to the server's cooldown) or a MissYouToo reply — always online, never queued, for the same reason revealVaultPassword is. */
   sendMissMe: (type: MissMeInteractionKind, inResponseToId?: string) =>
     request<MissMeSendResponseDto>('/api/miss-me/send', { method: 'POST', body: { type, inResponseToId } }),
+
+  /** Registers this device's Expo push token against the signed-in user — see PushTokensController. */
+  registerPushToken: (token: string, platform: string) =>
+    request<void>('/api/push-tokens', { method: 'POST', body: { token, platform } }),
+
+  /** Called on logout — see pushNotifications.ts. */
+  unregisterPushToken: (token: string) => request<void>('/api/push-tokens', { method: 'DELETE', body: { token } }),
+
+  /** Has this income period already been distributed, plus a short recent history — everything the Calculator screen needs in one call. */
+  getDistributionStatus: (year: number, month: number) =>
+    request<DistributionStatusResponseDto>(`/api/distributions/status?year=${year}&month=${month}`),
+
+  /** Executes a "Distribute Money" action — always online, never queued, same reasoning as sendMissMe. */
+  distributeMoney: (request_: DistributeMoneyRequestDto) =>
+    request<DistributeMoneyResponseDto>('/api/distributions', { method: 'POST', body: request_ }),
+
+  /**
+   * Records one payment toward a loan — always online, never queued, same reasoning as
+   * sendMissMe/distributeMoney (needs the server's synchronous balance/overpayment check).
+   * Idempotent on `request_.paymentId` — safe to retry.
+   */
+  payLoan: (loanId: string, request_: LoanPaymentRequestDto) =>
+    request<LoanPaymentResponseDto>(`/api/loans/${loanId}/payments`, { method: 'POST', body: request_ }),
 
   forgotPassword: (email: string) =>
     request<MessageResponseDto>('/api/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),

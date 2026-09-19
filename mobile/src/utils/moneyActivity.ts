@@ -27,19 +27,27 @@ export function getRecentActivity(accounts: Account[], transactions: Transaction
 
 const CATEGORY_ICONS: Record<string, string> = {
   Food: '🍔',
+  Groceries: '🛒',
   Transportation: '🚗',
   Shopping: '🛍️',
   Bills: '💡',
   Entertainment: '🎬',
   Health: '💊',
+  Personal: '🧴',
+  Education: '📚',
   Travel: '✈️',
-  Home: '🏠',
+  Household: '🏠',
   Salary: '💰',
   Freelance: '💼',
   Gift: '🎁',
   Refund: '↩️',
   Other: '💸',
 };
+
+/** A category's small display icon (e.g. for BudgetProgressRow's category rows) — the same map `describeTransaction` uses internally, exposed for callers that only have a category string, not a whole Transaction. */
+export function getCategoryIcon(category: string | null): string {
+  return CATEGORY_ICONS[category ?? 'Other'] ?? '💸';
+}
 
 export interface TransactionDescription {
   icon: string;

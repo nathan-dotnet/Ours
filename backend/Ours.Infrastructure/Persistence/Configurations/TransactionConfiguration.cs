@@ -12,7 +12,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 
         builder.Property(t => t.Type).HasMaxLength(20).IsRequired();
         builder.Property(t => t.Currency).HasMaxLength(3).IsRequired();
-        builder.Property(t => t.Category).HasMaxLength(20);
+        builder.Property(t => t.Category).HasMaxLength(TransactionCategory.MaxExpenseCategoryLength);
         builder.Property(t => t.Description).HasMaxLength(2000);
         builder.Property(t => t.Notes).HasMaxLength(2000);
 
@@ -37,6 +37,19 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
             .HasForeignKey(t => t.DestinationAccountId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Same Restrict reasoning as the Account FKs above — a SavingsGoal is never hard-deleted
+        // (see SavingsGoalConfiguration), so there's no cascade path this could ever need anyway.
+        builder.HasOne<SavingsGoal>()
+            .WithMany()
+            .HasForeignKey(t => t.SavingsGoalId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Same Restrict reasoning again — a Loan is never hard-deleted (see LoanConfiguration).
+        builder.HasOne<Loan>()
+            .WithMany()
+            .HasForeignKey(t => t.LoanId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // Every sync pull query filters by (CoupleId, UpdatedAt > since).
         builder.HasIndex(t => new { t.CoupleId, t.UpdatedAt });
 
@@ -45,5 +58,11 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => new { t.AccountId, t.TransactionDate });
         builder.HasIndex(t => new { t.DestinationAccountId, t.TransactionDate });
         builder.HasIndex(t => new { t.CoupleId, t.Type });
+
+        // A goal's progress (MoneyCalculator.CalculateSavingsGoalBalance) sums every transaction touching it.
+        builder.HasIndex(t => t.SavingsGoalId);
+
+        // A loan's remaining balance (MoneyCalculator.CalculateLoanPaidAmount) sums every transaction touching it.
+        builder.HasIndex(t => t.LoanId);
     }
 }

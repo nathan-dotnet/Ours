@@ -15,7 +15,7 @@ namespace Ours.Application.Services;
 /// couple's membership rows — never from anything the client supplies — the same discipline
 /// VaultService and SyncService already apply.
 /// </summary>
-public class MissMeService(IApplicationDbContext db, ICurrentUserService currentUser, IDateTimeProvider clock)
+public class MissMeService(IApplicationDbContext db, ICurrentUserService currentUser, IDateTimeProvider clock, IPushNotificationSender pushSender)
 {
     /// <summary>How long a user must wait after a MissMe before sending another one.</summary>
     public static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(30);
@@ -106,6 +106,11 @@ public class MissMeService(IApplicationDbContext db, ICurrentUserService current
         db.MissMeInteractions.Add(interaction);
         await db.SaveChangesAsync(ct);
 
+        // Only after the row is actually committed — a push is a notification *about* a fact
+        // that happened, never a promise of one that might not have.
+        var senderName = displayNames.GetValueOrDefault(userId, "Your partner");
+        await NotifyAsync(partnerId, $"{senderName} misses you.", interaction.Id, ct);
+
         return new MissMeSendResponseDto
         {
             Sent = true,
@@ -152,7 +157,29 @@ public class MissMeService(IApplicationDbContext db, ICurrentUserService current
         db.MissMeInteractions.Add(reply);
         await db.SaveChangesAsync(ct);
 
+        var senderName = displayNames.GetValueOrDefault(userId, "Your partner");
+        await NotifyAsync(original.SenderUserId, $"{senderName} misses you too.", reply.Id, ct);
+
         return new MissMeSendResponseDto { Sent = true, Interaction = ToDto(reply, displayNames) };
+    }
+
+    /// <summary>
+    /// Push notifications are always a best-effort nicety on top of the write that already
+    /// succeeded above — IPushNotificationSender's own contract is to swallow every failure
+    /// (log, never throw), so nothing here needs its own try/catch. A receiver with no
+    /// registered device (or who hasn't granted notification permission) just gets none.
+    /// </summary>
+    private async Task NotifyAsync(Guid receiverId, string body, Guid interactionId, CancellationToken ct)
+    {
+        var tokens = await db.PushTokens.Where(t => t.UserId == receiverId).Select(t => t.Token).ToListAsync(ct);
+        if (tokens.Count == 0) return;
+
+        await pushSender.SendAsync(
+            tokens,
+            title: "Little Moment 💙",
+            body: body,
+            data: new Dictionary<string, object?> { ["kind"] = "miss-me", ["interactionId"] = interactionId.ToString() },
+            cancellationToken: ct);
     }
 
     private async Task<(bool CanSend, DateTimeOffset? NextAvailableAt)> GetCooldownStateAsync(Guid coupleId, Guid userId, CancellationToken ct)

@@ -18,6 +18,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<Budget> Budgets => Set<Budget>();
+    public DbSet<SavingsGoal> SavingsGoals => Set<SavingsGoal>();
+    public DbSet<Loan> Loans => Set<Loan>();
+    public DbSet<Distribution> Distributions => Set<Distribution>();
+    public DbSet<PushToken> PushTokens => Set<PushToken>();
     public DbSet<VaultItem> VaultItems => Set<VaultItem>();
     public DbSet<MissMeInteraction> MissMeInteractions => Set<MissMeInteraction>();
 

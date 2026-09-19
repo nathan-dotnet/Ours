@@ -28,8 +28,23 @@ public class Transaction : ISyncableEntity
     /// <summary>Only set for a Transfer — the account the money moves *into*. Null for Expense/Income.</summary>
     public Guid? DestinationAccountId { get; set; }
 
-    /// <summary>One of <see cref="TransactionCategory"/>'s Expense or Income vocabularies — always null for a Transfer.</summary>
+    /// <summary>One of <see cref="TransactionCategory"/>'s Expense or Income vocabularies — always null for a Transfer or a savings contribution/withdrawal.</summary>
     public string? Category { get; set; }
+
+    /// <summary>
+    /// Set only for <see cref="TransactionType.SavingsContribution"/>/<see cref="TransactionType.SavingsWithdrawal"/>
+    /// — which goal this movement is credited to (contribution) or debited from (withdrawal).
+    /// Null for every other type. See MoneyCalculator for how this affects AccountId's balance.
+    /// </summary>
+    public Guid? SavingsGoalId { get; set; }
+
+    /// <summary>
+    /// Set only for <see cref="TransactionType.LoanPayment"/> — which loan this payment reduces.
+    /// Null for every other type. See MoneyCalculator for how this affects AccountId's balance
+    /// and Loan's doc comment for why the loan's own remaining balance is derived from this
+    /// instead of stored.
+    /// </summary>
+    public Guid? LoanId { get; set; }
 
     public string? Description { get; set; }
 

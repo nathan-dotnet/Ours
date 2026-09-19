@@ -3,7 +3,10 @@ import {
   calculateAccountBalance,
   calculateBudgetRemaining,
   calculateCategorySpending,
+  calculateLoanPaidAmount,
+  calculateLoanRemainingBalance,
   calculateMonthlySpending,
+  calculateSavingsGoalBalance,
   calculateTotalBalance,
 } from '../moneyCalculations';
 
@@ -17,6 +20,8 @@ function tx(overrides: Partial<Transaction>): Transaction {
     account_id: 'account-1',
     destination_account_id: null,
     category: 'Food',
+    savings_goal_id: null,
+    loan_id: null,
     description: null,
     transaction_date: '2026-09-01',
     notes: null,
@@ -86,6 +91,60 @@ describe('calculateAccountBalance', () => {
     expense.account_id = 'gcash'; // simulates the edit
     expect(calculateAccountBalance(1_000_000, 'bpi', [expense])).toBe(1_000_000);
     expect(calculateAccountBalance(500_000, 'gcash', [expense])).toBe(450_000);
+  });
+});
+
+describe('calculateAccountBalance — savings movements', () => {
+  it('a savings contribution decreases the source account, like an expense', () => {
+    const balance = calculateAccountBalance(1_000_000, 'account-1', [
+      tx({ type: 'SavingsContribution', amount_cents: 300_000, account_id: 'account-1', category: null, savings_goal_id: 'goal-1' }),
+    ]);
+    expect(balance).toBe(700_000);
+  });
+
+  it('a savings withdrawal increases the account, like income', () => {
+    const balance = calculateAccountBalance(700_000, 'account-1', [
+      tx({ type: 'SavingsWithdrawal', amount_cents: 100_000, account_id: 'account-1', category: null, savings_goal_id: 'goal-1' }),
+    ]);
+    expect(balance).toBe(800_000);
+  });
+});
+
+describe('calculateMonthlySpending — savings movements', () => {
+  it('never counts a savings contribution or withdrawal as spending', () => {
+    const transactions = [
+      tx({ type: 'SavingsContribution', amount_cents: 500_000, category: null, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsWithdrawal', amount_cents: 100_000, category: null, savings_goal_id: 'goal-1' }),
+    ];
+    expect(calculateMonthlySpending(transactions, 2026, 9)).toBe(0);
+  });
+});
+
+describe('calculateAccountBalance / calculateMonthlySpending — income allocation (Distribute Money)', () => {
+  it('an income allocation increases the destination account, like income', () => {
+    const balance = calculateAccountBalance(0, 'account-1', [tx({ type: 'IncomeAllocation', amount_cents: 2_500_000, category: null })]);
+    expect(balance).toBe(2_500_000);
+  });
+
+  it('never counts an income allocation as spending', () => {
+    expect(calculateMonthlySpending([tx({ type: 'IncomeAllocation', amount_cents: 2_500_000, category: null })], 2026, 9)).toBe(0);
+  });
+});
+
+describe('calculateSavingsGoalBalance', () => {
+  it('sums contributions minus withdrawals for that goal only', () => {
+    const transactions = [
+      tx({ type: 'SavingsContribution', amount_cents: 500_000, category: null, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsContribution', amount_cents: 300_000, category: null, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsWithdrawal', amount_cents: 100_000, category: null, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsContribution', amount_cents: 999_900, category: null, savings_goal_id: 'goal-2' }), // a different goal — must not leak in
+    ];
+    expect(calculateSavingsGoalBalance('goal-1', transactions)).toBe(700_000);
+  });
+
+  it('excludes deleted contributions', () => {
+    const transactions = [tx({ type: 'SavingsContribution', amount_cents: 500_000, category: null, savings_goal_id: 'goal-1', is_deleted: 1 })];
+    expect(calculateSavingsGoalBalance('goal-1', transactions)).toBe(0);
   });
 });
 
@@ -162,6 +221,48 @@ describe('calculateBudgetRemaining', () => {
     expect(calculateBudgetRemaining(500_000, 100_000)).toBe(400_000);
   });
 });
+
+describe('calculateAccountBalance — LoanPayment', () => {
+  it('debits the account, same direction as an Expense', () => {
+    const transactions = [tx({ type: 'LoanPayment', amount_cents: 1_700_00, loan_id: 'loan-1' })];
+    expect(calculateAccountBalance(1_000_000, 'account-1', transactions)).toBe(1_000_000 - 1_700_00);
+  });
+
+  it('is excluded from monthly spending, same as SavingsContribution', () => {
+    const transactions = [tx({ type: 'LoanPayment', amount_cents: 1_700_00, loan_id: 'loan-1' })];
+    expect(calculateMonthlySpending(transactions, 2026, 9)).toBe(0);
+  });
+});
+
+describe('calculateLoanPaidAmount', () => {
+  it('sums every non-deleted LoanPayment linked to the loan', () => {
+    const transactions = [
+      tx({ type: 'LoanPayment', amount_cents: 1_700_00, loan_id: 'loan-1', id: 'p1' }),
+      tx({ type: 'LoanPayment', amount_cents: 1_700_00, loan_id: 'loan-1', id: 'p2' }),
+      tx({ type: 'LoanPayment', amount_cents: 1_000_00, loan_id: 'loan-2', id: 'p3' }), // a different loan
+      tx({ type: 'LoanPayment', amount_cents: 999_00, loan_id: 'loan-1', id: 'p4', is_deleted: 1 }), // deleted
+    ];
+    expect(calculateLoanPaidAmount('loan-1', transactions)).toBe(3_400_00);
+  });
+
+  it('is zero when nothing has been paid yet', () => {
+    expect(calculateLoanPaidAmount('loan-1', [])).toBe(0);
+  });
+});
+
+describe('calculateLoanRemainingBalance', () => {
+  it('matches the spec worked example: 10,200 original, 1,700 paid -> 8,500 remaining', () => {
+    expect(calculateLoanRemainingBalance(10_200_00, 1_700_00)).toBe(8_500_00);
+  });
+
+  it('never goes negative', () => {
+    expect(calculateLoanRemainingBalance(1_000_00, 1_500_00)).toBe(0);
+  });
+});
+
+// Per-installment schedule/progress/due-status tests (generateLoanSchedule, getLoanProgress,
+// getLoanDueStatus) now live in utils/__tests__/loanSchedule.test.ts — they need a loan's full
+// schedule (anchored by first_due_date), not just these two account/loan balance primitives.
 
 describe('precision', () => {
   it('100.10 + 0.20 is exactly 100.30 (integer cents, never float)', () => {

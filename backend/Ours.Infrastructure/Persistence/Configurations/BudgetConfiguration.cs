@@ -10,7 +10,7 @@ public class BudgetConfiguration : IEntityTypeConfiguration<Budget>
     {
         builder.HasKey(b => b.Id);
 
-        builder.Property(b => b.Category).HasMaxLength(20).IsRequired();
+        builder.Property(b => b.Category).HasMaxLength(TransactionCategory.MaxExpenseCategoryLength).IsRequired();
         builder.Property(b => b.Currency).HasMaxLength(3).IsRequired();
         builder.Property(b => b.Amount).HasColumnType("numeric(18,2)");
 

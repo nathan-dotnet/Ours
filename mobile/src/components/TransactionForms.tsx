@@ -14,6 +14,7 @@ import {
 } from '../validation/transaction';
 import { AccountPickerField } from './AccountPickerField';
 import { Button } from './Button';
+import { CategoryPickerField } from './CategoryPickerField';
 import { DateTimeField } from './DateTimeField';
 import { TextField } from './TextField';
 
@@ -64,16 +65,13 @@ export function ExpenseTransactionForm({
           <TextField label="Amount" value={field.value} onChangeText={field.onChange} keyboardType="decimal-pad" placeholder="0.00" error={errors.amountText?.message} />
         )}
       />
-      <View className="gap-1.5">
-        <Text className="text-sm font-medium text-ink">Category</Text>
-        <View className="flex-row flex-wrap gap-2">
-          {EXPENSE_CATEGORIES.map((option) => (
-            <Pressable key={option} onPress={() => setValue('category', option)} className={`rounded-full px-3 py-2 ${option === category ? 'bg-rose' : 'bg-blush'}`}>
-              <Text className={`text-xs font-medium ${option === category ? 'text-cream' : 'text-clay'}`}>{option}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+      <CategoryPickerField
+        label="Category"
+        presets={EXPENSE_CATEGORIES}
+        value={category}
+        onChange={(value) => setValue('category', value, { shouldValidate: true })}
+        error={errors.category?.message}
+      />
       <AccountPickerField label="Account" accounts={accounts} value={accountId} onChange={(v) => setValue('accountId', v)} error={errors.accountId?.message} />
       <Controller
         control={control}

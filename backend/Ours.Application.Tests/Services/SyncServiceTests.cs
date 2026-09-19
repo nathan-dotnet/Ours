@@ -42,6 +42,33 @@ public class SyncServiceTests
         Payload = JsonSerializer.SerializeToElement(new { nickname }),
     };
 
+    private static SyncPushItemDto CoupleAllocationPush(
+        Guid entityId,
+        DateTimeOffset clientUpdatedAt,
+        decimal? budgetPercent = null,
+        decimal? savingsPercent = null,
+        decimal? wantsPercent = null,
+        Guid? budgetAccountId = null,
+        Guid? savingsAccountId = null,
+        Guid? wantsAccountId = null,
+        decimal? myMonthlyIncome = null) => new()
+    {
+        EntityType = SyncService.CoupleProfileEntityType,
+        EntityId = entityId,
+        Operation = SyncOperation.Update,
+        ClientUpdatedAt = clientUpdatedAt,
+        Payload = JsonSerializer.SerializeToElement(new
+        {
+            budgetAllocationPercent = budgetPercent,
+            savingsAllocationPercent = savingsPercent,
+            wantsAllocationPercent = wantsPercent,
+            budgetAccountId,
+            savingsAccountId,
+            wantsAccountId,
+            myMonthlyIncome,
+        }),
+    };
+
     [Fact]
     public async Task PushAsync_AppliesUpdate_AndBumpsVersion()
     {
@@ -114,6 +141,110 @@ public class SyncServiceTests
 
         var result = Assert.Single(response.Results);
         Assert.False(result.Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CoupleProfile_SavesTheAllocationPlan_WhenPercentagesSumTo100()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var account = new Account { Id = Guid.NewGuid(), CoupleId = couple.Id, Name = "BPI", OpeningBalance = 0m };
+        db.Accounts.Add(account);
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CoupleAllocationPush(couple.Id, clock.UtcNow, 50m, 30m, 20m, account.Id, account.Id, account.Id)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var saved = await db.Couples.SingleAsync();
+        Assert.Equal(50m, saved.BudgetAllocationPercent);
+        Assert.Equal(30m, saved.SavingsAllocationPercent);
+        Assert.Equal(20m, saved.WantsAllocationPercent);
+    }
+
+    [Fact]
+    public async Task PushAsync_CoupleProfile_RejectsAnAllocationThatDoesNotSumTo100()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CoupleAllocationPush(couple.Id, clock.UtcNow, 50m, 30m, 30m)], // 110
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CoupleProfile_RejectsWhenOnlySomePercentagesAreSet()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CoupleAllocationPush(couple.Id, clock.UtcNow, budgetPercent: 50m)], // Savings/Wants missing
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CoupleProfile_RejectsAnAllocationAccountFromAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var someoneElsesAccount = new Account { Id = Guid.NewGuid(), CoupleId = Guid.NewGuid(), Name = "Not yours", OpeningBalance = 0m };
+        db.Accounts.Add(someoneElsesAccount);
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CoupleAllocationPush(couple.Id, clock.UtcNow, 50m, 30m, 20m, budgetAccountId: someoneElsesAccount.Id)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CoupleProfile_SavesTheCallersOwnIncome_NeverThePartners()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var partnerId = Guid.NewGuid();
+        db.CoupleMembers.Add(new CoupleMember { Id = Guid.NewGuid(), CoupleId = couple.Id, UserId = currentUser.UserId, JoinedAt = clock.UtcNow });
+        db.CoupleMembers.Add(new CoupleMember { Id = Guid.NewGuid(), CoupleId = couple.Id, UserId = partnerId, JoinedAt = clock.UtcNow });
+        await db.SaveChangesAsync();
+
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CoupleAllocationPush(couple.Id, clock.UtcNow, myMonthlyIncome: 30_000m)],
+        });
+
+        var mine = await db.CoupleMembers.SingleAsync(m => m.UserId == currentUser.UserId);
+        var partners = await db.CoupleMembers.SingleAsync(m => m.UserId == partnerId);
+        Assert.Equal(30_000m, mine.MonthlyIncome);
+        Assert.Null(partners.MonthlyIncome);
+    }
+
+    [Fact]
+    public async Task PullAsync_CoupleProfile_IncludesEachMembersIncome()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        db.Users.Add(new ApplicationUser { Id = currentUser.UserId, Email = "alice@test.com", UserName = "alice@test.com", DisplayName = "Alice", CreatedAt = clock.UtcNow });
+        db.CoupleMembers.Add(new CoupleMember { Id = Guid.NewGuid(), CoupleId = couple.Id, UserId = currentUser.UserId, JoinedAt = clock.UtcNow, MonthlyIncome = 25_000m });
+        await db.SaveChangesAsync();
+
+        var response = await service.PullAsync(since: null);
+
+        var change = Assert.Single(response.Changes);
+        var payload = Assert.IsType<Ours.Application.DTOs.Couples.CoupleProfilePayloadDto>(change.Payload);
+        var member = Assert.Single(payload.Members!);
+        Assert.Equal(25_000m, member.MonthlyIncome);
     }
 
     [Fact]
@@ -469,7 +600,9 @@ public class SyncServiceTests
         string? category = "Food",
         Guid? destinationAccountId = null,
         string operation = SyncOperation.Create,
-        Guid? paidByUserId = null) => new()
+        Guid? paidByUserId = null,
+        Guid? savingsGoalId = null,
+        Guid? loanId = null) => new()
     {
         EntityType = SyncService.TransactionEntityType,
         EntityId = entityId,
@@ -486,6 +619,8 @@ public class SyncServiceTests
             transactionDate = DateOnly.FromDateTime(clientUpdatedAt.UtcDateTime),
             description = "Test",
             paidByUserId,
+            savingsGoalId,
+            loanId,
         }),
     };
 
@@ -503,6 +638,22 @@ public class SyncServiceTests
         Operation = operation,
         ClientUpdatedAt = clientUpdatedAt,
         Payload = JsonSerializer.SerializeToElement(new { category, year, month, amount = amount ?? 5_000m, currency = "PHP" }),
+    };
+
+    private static SyncPushItemDto SavingsGoalPush(
+        Guid entityId,
+        DateTimeOffset clientUpdatedAt,
+        string name = "Emergency Fund",
+        object targetAmount = null!,
+        decimal? allocationPercent = null,
+        bool isActive = true,
+        string operation = SyncOperation.Create) => new()
+    {
+        EntityType = SyncService.SavingsGoalEntityType,
+        EntityId = entityId,
+        Operation = operation,
+        ClientUpdatedAt = clientUpdatedAt,
+        Payload = JsonSerializer.SerializeToElement(new { name, targetAmount = targetAmount ?? 50_000m, currency = "PHP", allocationPercent, isActive }),
     };
 
     // --- Accounts ---
@@ -640,6 +791,95 @@ public class SyncServiceTests
     }
 
     [Fact]
+    public async Task PushAsync_RejectsAnExpense_ThatWouldOverdrawTheAccount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow, openingBalance: 200m)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "Expense", amount: 350m)],
+        });
+
+        var result = Assert.Single(response.Results);
+        Assert.False(result.Accepted);
+        Assert.Equal("Insufficient balance.", result.Error);
+        Assert.Empty(await db.Transactions.Where(t => t.AccountId == accountId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task PushAsync_AcceptsAnExpense_ThatExactlyExhauststheAccount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow, openingBalance: 350m)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "Expense", amount: 350m)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var account = await db.Accounts.FirstAsync(a => a.Id == accountId);
+        var transactions = await db.Transactions.Where(t => t.AccountId == accountId).ToListAsync();
+        Assert.Equal(0m, MoneyCalculator.CalculateAccountBalance(account.OpeningBalance, accountId, transactions));
+    }
+
+    [Fact]
+    public async Task PushAsync_EditingAnExpenseToALowerAmount_NeverFalselyRejectsForInsufficientBalance()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        var expenseId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow, openingBalance: 500m)] });
+        await service.PushAsync(new SyncPushRequestDto { Changes = [TransactionPush(expenseId, clock.UtcNow.AddMinutes(1), accountId, type: "Expense", amount: 500m)] });
+
+        // Re-saving the *same* expense at a lower amount must exclude its own current effect from
+        // the balance check — otherwise this would look like "500 already spent + 300 more" and
+        // falsely reject, even though the account can clearly cover 300.
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(expenseId, clock.UtcNow.AddMinutes(2), accountId, type: "Expense", amount: 300m)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var account = await db.Accounts.FirstAsync(a => a.Id == accountId);
+        var transactions = await db.Transactions.Where(t => t.AccountId == accountId).ToListAsync();
+        Assert.Equal(200m, MoneyCalculator.CalculateAccountBalance(account.OpeningBalance, accountId, transactions));
+    }
+
+    [Fact]
+    public async Task PushAsync_EditingAnExpenseToADifferentAccount_ValidatesTheNewAccountsBalance()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var gcash = Guid.NewGuid();
+        var bpi = Guid.NewGuid();
+        var expenseId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [AccountPush(gcash, clock.UtcNow, name: "GCash", openingBalance: 1_000m), AccountPush(bpi, clock.UtcNow, name: "BPI", openingBalance: 100m)],
+        });
+        await service.PushAsync(new SyncPushRequestDto { Changes = [TransactionPush(expenseId, clock.UtcNow.AddMinutes(1), gcash, type: "Expense", amount: 500m)] });
+
+        // Moving the same expense to BPI, which can't cover it, must be rejected against BPI's
+        // own balance — not GCash's (which would now have plenty of room since the expense left).
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(expenseId, clock.UtcNow.AddMinutes(2), bpi, type: "Expense", amount: 500m)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+        // The expense must still be recorded against its original account, unchanged.
+        var stillOnGCash = await db.Transactions.SingleAsync(t => t.Id == expenseId);
+        Assert.Equal(gcash, stillOnGCash.AccountId);
+    }
+
+    [Fact]
     public async Task PushAsync_CreatesIncome_IncreasesCalculatedBalance()
     {
         var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
@@ -768,10 +1008,28 @@ public class SyncServiceTests
 
         var response = await service.PushAsync(new SyncPushRequestDto
         {
-            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, category: "Salary")], // an income category, invalid for an expense
+            // Expense category is an open vocabulary (see TransactionCategory), so it's rejected
+            // for being empty and over-length, not for failing to match a preset.
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, category: new string('x', 31))],
         });
 
         Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_AcceptsACustomExpenseCategoryNotInThePresetList()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, category: "Date Night")],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
     }
 
     [Fact]
@@ -792,6 +1050,172 @@ public class SyncServiceTests
         });
 
         Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CreatesSavingsContribution_DebitingTheAccount_LikeAnExpense()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var bpi = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(bpi, clock.UtcNow, name: "BPI", openingBalance: 10_000m)] });
+        var goalId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow.AddMinutes(1))] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(2), bpi, type: "SavingsContribution", amount: 3_000m, category: null, savingsGoalId: goalId)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var transactions = await db.Transactions.ToListAsync();
+        Assert.Equal(7_000m, MoneyCalculator.CalculateAccountBalance(10_000m, bpi, transactions));
+        Assert.Equal(3_000m, MoneyCalculator.CalculateSavingsGoalBalance(goalId, transactions));
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsSavingsContribution_WithoutASavingsGoalId()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "SavingsContribution", category: null)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsSavingsContribution_WithASavingsGoalFromAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        var someoneElsesGoal = new SavingsGoal { Id = Guid.NewGuid(), CoupleId = Guid.NewGuid(), Name = "Not yours", TargetAmount = 1_000m };
+        db.SavingsGoals.Add(someoneElsesGoal);
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "SavingsContribution", category: null, savingsGoalId: someoneElsesGoal.Id)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAnOrdinaryExpense_ThatReferencesASavingsGoal()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        var goalId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow.AddMinutes(1))] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(2), accountId, type: "Expense", savingsGoalId: goalId)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAClientPushingAnIncomeAllocation_SystemGeneratedOnly()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "IncomeAllocation", category: null)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAClientPushingALoanPayment_SystemGeneratedOnly()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "LoanPayment", category: null, loanId: Guid.NewGuid())],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAnOrdinaryExpense_ThatReferencesALoan()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, type: "Expense", loanId: Guid.NewGuid())],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_CreatesSavingsWithdrawal_CreditingTheAccount_LikeIncome()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var bpi = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(bpi, clock.UtcNow, name: "BPI", openingBalance: 10_000m)] });
+        var goalId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow.AddMinutes(1))] });
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(2), bpi, type: "SavingsContribution", amount: 5_000m, category: null, savingsGoalId: goalId)],
+        });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(3), bpi, type: "SavingsWithdrawal", amount: 1_000m, category: null, savingsGoalId: goalId)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var transactions = await db.Transactions.ToListAsync();
+        Assert.Equal(6_000m, MoneyCalculator.CalculateAccountBalance(10_000m, bpi, transactions)); // -5,000 then +1,000
+        Assert.Equal(4_000m, MoneyCalculator.CalculateSavingsGoalBalance(goalId, transactions));
+    }
+
+    [Fact]
+    public async Task PushAsync_SavingsContribution_NeverCountsAsMonthlySpending()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var bpi = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(bpi, clock.UtcNow, name: "BPI")] });
+        var goalId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow.AddMinutes(1))] });
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [TransactionPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(2), bpi, type: "SavingsContribution", amount: 5_000m, category: null, savingsGoalId: goalId)],
+        });
+
+        var transactions = await db.Transactions.ToListAsync();
+        var (year, month) = (clock.UtcNow.Year, clock.UtcNow.Month);
+        Assert.Equal(0m, MoneyCalculator.CalculateMonthlySpending(transactions, year, month));
     }
 
     [Fact]
@@ -878,6 +1302,28 @@ public class SyncServiceTests
         var response = await service.PushAsync(new SyncPushRequestDto { Changes = [BudgetPush(Guid.NewGuid(), clock.UtcNow)] });
 
         Assert.True(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_AcceptsACustomBudgetCategoryNotInThePresetList()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [BudgetPush(Guid.NewGuid(), clock.UtcNow, category: "Date Night")] });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsAnOverLongBudgetCategory()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [BudgetPush(Guid.NewGuid(), clock.UtcNow, category: new string('x', 31))] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
     }
 
     [Fact]
@@ -1034,6 +1480,340 @@ public class SyncServiceTests
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.AccountEntityType);
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.TransactionEntityType);
         Assert.Contains(response.Changes, c => c.EntityType == SyncService.BudgetEntityType);
+    }
+
+    // --- Savings Goals ---
+
+    [Fact]
+    public async Task PushAsync_CreatesSavingsGoal_WithClientGeneratedId()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var goalId = Guid.NewGuid();
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow, name: "Travel", allocationPercent: 30m)] });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var saved = await db.SavingsGoals.SingleAsync(g => g.Id == goalId);
+        Assert.Equal("Travel", saved.Name);
+        Assert.Equal(30m, saved.AllocationPercent);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsASavingsGoal_WithoutAName()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow, name: "")] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsASavingsGoal_WithANonPositiveTargetAmount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow, targetAmount: 0m)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsASavingsGoal_WithAnAllocationPercentOutOfRange()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow, allocationPercent: 150m)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_AllowsAnyNumberOfSavingsGoals_NoDuplicateNameOrCategoryRestriction()
+    {
+        // Unlike Budget (one active row per couple+year+month+category), goals have no
+        // uniqueness rule — a couple can have as many as they want, even sharing a name.
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow, name: "Other")] });
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow.AddSeconds(1), name: "Other")] });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        Assert.Equal(2, await db.SavingsGoals.CountAsync());
+    }
+
+    [Fact]
+    public async Task PushAsync_DeletesASavingsGoal_SoftlyAndIdempotently()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var goalId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(goalId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [SavingsGoalPush(goalId, clock.UtcNow.AddMinutes(1), operation: SyncOperation.Delete)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        Assert.True((await db.SavingsGoals.SingleAsync(g => g.Id == goalId)).IsDeleted);
+    }
+
+    [Fact]
+    public async Task PullAsync_IncludesSavingsGoals()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        await service.PushAsync(new SyncPushRequestDto { Changes = [SavingsGoalPush(Guid.NewGuid(), clock.UtcNow)] });
+
+        var response = await service.PullAsync(since: null);
+
+        Assert.Contains(response.Changes, c => c.EntityType == SyncService.SavingsGoalEntityType);
+    }
+
+    // --- Loans ---
+
+    private static SyncPushItemDto LoanPush(
+        Guid entityId,
+        DateTimeOffset clientUpdatedAt,
+        Guid paymentAccountId,
+        string name = "Shopee PayLater",
+        string? provider = "Shopee",
+        object originalAmount = null!,
+        object monthlyPayment = null!,
+        int totalInstallments = 6,
+        object firstDueDate = null!,
+        string frequency = "Monthly",
+        decimal? feesAmount = null,
+        Guid? ownerUserId = null,
+        string operation = SyncOperation.Create) => new()
+    {
+        EntityType = SyncService.LoanEntityType,
+        EntityId = entityId,
+        Operation = operation,
+        ClientUpdatedAt = clientUpdatedAt,
+        Payload = JsonSerializer.SerializeToElement(new
+        {
+            name,
+            provider,
+            originalAmount = originalAmount ?? 10_200m,
+            monthlyPayment = monthlyPayment ?? 1_700m,
+            totalInstallments,
+            firstDueDate = firstDueDate ?? new DateOnly(2026, 9, 15),
+            frequency,
+            feesAmount,
+            currency = "PHP",
+            paymentAccountId,
+            ownerUserId,
+        }),
+    };
+
+    [Fact]
+    public async Task PushAsync_CreatesLoan_WithClientGeneratedId()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        var loanId = Guid.NewGuid();
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(loanId, clock.UtcNow.AddMinutes(1), accountId)] });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        var saved = await db.Loans.SingleAsync(l => l.Id == loanId);
+        Assert.Equal("Shopee PayLater", saved.Name);
+        Assert.Equal("Shopee", saved.Provider);
+        Assert.Equal(10_200m, saved.OriginalAmount);
+        Assert.Equal(1_700m, saved.MonthlyPayment);
+        Assert.Equal(6, saved.TotalInstallments);
+        Assert.Equal(new DateOnly(2026, 9, 15), saved.FirstDueDate);
+        Assert.Equal("Monthly", saved.Frequency);
+        Assert.Equal(accountId, saved.PaymentAccountId);
+        Assert.Null(saved.OwnerUserId); // Joint by default
+    }
+
+    [Fact]
+    public async Task PushAsync_CreatesLoan_WithAnOwner()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        db.CoupleMembers.Add(new CoupleMember { Id = Guid.NewGuid(), CoupleId = couple.Id, UserId = currentUser.UserId, JoinedAt = clock.UtcNow });
+        await db.SaveChangesAsync();
+        var loanId = Guid.NewGuid();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanPush(loanId, clock.UtcNow.AddMinutes(1), accountId, ownerUserId: currentUser.UserId)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        Assert.Equal(currentUser.UserId, (await db.Loans.SingleAsync(l => l.Id == loanId)).OwnerUserId);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_OwnedBySomeoneNotAnActiveMemberOfTheCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, ownerUserId: Guid.NewGuid())],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithoutAName()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, name: "")] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithANonPositiveOriginalAmount()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, originalAmount: 0m)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithANonPositiveMonthlyPayment()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, monthlyPayment: -1m)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithZeroInstallments()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, totalInstallments: 0)] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithAnInvalidFirstDueDate()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, firstDueDate: new DateOnly(1900, 1, 1))] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WithAnInvalidFrequency()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId, frequency: "Weekly")] });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsALoan_WhosePaymentAccountBelongsToAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow, Guid.NewGuid())] }); // account never pushed/owned
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PushAsync_DeletesALoan_SoftlyAndIdempotently()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        var loanId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(loanId, clock.UtcNow.AddMinutes(1), accountId)] });
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanPush(loanId, clock.UtcNow.AddMinutes(2), accountId, operation: SyncOperation.Delete)],
+        });
+
+        Assert.True(Assert.Single(response.Results).Accepted);
+        Assert.True((await db.Loans.SingleAsync(l => l.Id == loanId)).IsDeleted);
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsSyncingAnotherCouplesLoan()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var otherLoan = new Loan
+        {
+            Id = Guid.NewGuid(), CoupleId = Guid.NewGuid(), Name = "Not yours", OriginalAmount = 1_000m,
+            MonthlyPayment = 100m, TotalInstallments = 10, FirstDueDate = new DateOnly(2026, 9, 1), PaymentAccountId = Guid.NewGuid(),
+        };
+        db.Loans.Add(otherLoan);
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanPush(otherLoan.Id, clock.UtcNow.AddMinutes(1), Guid.NewGuid(), operation: SyncOperation.Delete)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    [Fact]
+    public async Task PullAsync_IncludesLoans()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+        var accountId = Guid.NewGuid();
+        await service.PushAsync(new SyncPushRequestDto { Changes = [AccountPush(accountId, clock.UtcNow)] });
+        await service.PushAsync(new SyncPushRequestDto { Changes = [LoanPush(Guid.NewGuid(), clock.UtcNow.AddMinutes(1), accountId)] });
+
+        var response = await service.PullAsync(since: null);
+
+        Assert.Contains(response.Changes, c => c.EntityType == SyncService.LoanEntityType);
     }
 
     // ---------------------------------------------------------------------------------------

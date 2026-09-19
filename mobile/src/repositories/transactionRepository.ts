@@ -8,12 +8,16 @@ import { generateUuid } from '../utils/uuid';
 export const TRANSACTION_ENTITY_TYPE = 'money_transaction';
 
 export interface TransactionInput {
-  type: string; // 'Expense' | 'Income' | 'Transfer'
+  type: string; // 'Expense' | 'Income' | 'Transfer' | 'SavingsContribution' | 'SavingsWithdrawal'
   amountCents: number;
   currency: string;
   accountId: string;
   destinationAccountId?: string | null;
   category?: string | null;
+  /** Only for SavingsContribution/SavingsWithdrawal — which goal this movement is credited to/debited from. */
+  savingsGoalId?: string | null;
+  /** Only for LoanPayment — which loan this payment reduces. In practice never set here directly (system-generated only, via loanRepository.recordPaymentLocally); a plain form never creates one. */
+  loanId?: string | null;
   description: string | null;
   transactionDate: string; // ISO date (YYYY-MM-DD)
   notes: string | null;
@@ -28,6 +32,8 @@ function toPayload(input: TransactionInput): TransactionPayload {
     accountId: input.accountId,
     destinationAccountId: input.destinationAccountId ?? null,
     category: input.category ?? null,
+    savingsGoalId: input.savingsGoalId ?? null,
+    loanId: input.loanId ?? null,
     description: input.description,
     transactionDate: input.transactionDate,
     notes: input.notes,
@@ -69,6 +75,15 @@ export const transactionRepository = {
     return db.getFirstAsync<Transaction>(`SELECT * FROM money_transactions WHERE id = ? AND is_deleted = 0`, [id]);
   },
 
+  /** Every LoanPayment transaction linked to one loan — a loan's payment history, read straight from the ledger (see loanRepository.ts). */
+  async getForLoan(loanId: string): Promise<Transaction[]> {
+    const db = await getDatabase();
+    return db.getAllAsync<Transaction>(
+      `SELECT * FROM money_transactions WHERE loan_id = ? AND is_deleted = 0 ORDER BY transaction_date DESC, created_at DESC`,
+      [loanId],
+    );
+  },
+
   /** Offline-first create: writes SQLite immediately (device-generated id), then queues the sync op. */
   async createLocally(coupleId: string, input: TransactionInput, createdByUserId: string): Promise<Transaction> {
     const db = await getDatabase();
@@ -77,8 +92,8 @@ export const transactionRepository = {
 
     await db.runAsync(
       `INSERT INTO money_transactions
-         (id, couple_id, type, amount_cents, currency, account_id, destination_account_id, category, description, transaction_date, notes, paid_by_user_id, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+         (id, couple_id, type, amount_cents, currency, account_id, destination_account_id, category, savings_goal_id, loan_id, description, transaction_date, notes, paid_by_user_id, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
       [
         id,
         coupleId,
@@ -88,6 +103,8 @@ export const transactionRepository = {
         input.accountId,
         input.destinationAccountId ?? null,
         input.category ?? null,
+        input.savingsGoalId ?? null,
+        input.loanId ?? null,
         input.description,
         input.transactionDate,
         input.notes,
@@ -110,6 +127,8 @@ export const transactionRepository = {
       account_id: input.accountId,
       destination_account_id: input.destinationAccountId ?? null,
       category: input.category ?? null,
+      savings_goal_id: input.savingsGoalId ?? null,
+      loan_id: input.loanId ?? null,
       description: input.description,
       transaction_date: input.transactionDate,
       notes: input.notes,
@@ -130,7 +149,7 @@ export const transactionRepository = {
 
     await db.runAsync(
       `UPDATE money_transactions
-       SET type = ?, amount_cents = ?, currency = ?, account_id = ?, destination_account_id = ?, category = ?, description = ?, transaction_date = ?, notes = ?, paid_by_user_id = ?, updated_at = ?, updated_by_user_id = ?
+       SET type = ?, amount_cents = ?, currency = ?, account_id = ?, destination_account_id = ?, category = ?, savings_goal_id = ?, loan_id = ?, description = ?, transaction_date = ?, notes = ?, paid_by_user_id = ?, updated_at = ?, updated_by_user_id = ?
        WHERE id = ?`,
       [
         input.type,
@@ -139,6 +158,8 @@ export const transactionRepository = {
         input.accountId,
         input.destinationAccountId ?? null,
         input.category ?? null,
+        input.savingsGoalId ?? null,
+        input.loanId ?? null,
         input.description,
         input.transactionDate,
         input.notes,
@@ -178,8 +199,8 @@ export const transactionRepository = {
 
     await db.runAsync(
       `INSERT INTO money_transactions
-         (id, couple_id, type, amount_cents, currency, account_id, destination_account_id, category, description, transaction_date, notes, paid_by_user_id, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+         (id, couple_id, type, amount_cents, currency, account_id, destination_account_id, category, savings_goal_id, loan_id, description, transaction_date, notes, paid_by_user_id, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          type = excluded.type,
          amount_cents = excluded.amount_cents,
@@ -187,6 +208,8 @@ export const transactionRepository = {
          account_id = excluded.account_id,
          destination_account_id = excluded.destination_account_id,
          category = excluded.category,
+         savings_goal_id = excluded.savings_goal_id,
+         loan_id = excluded.loan_id,
          description = excluded.description,
          transaction_date = excluded.transaction_date,
          notes = excluded.notes,
@@ -204,6 +227,8 @@ export const transactionRepository = {
         payload.accountId,
         payload.destinationAccountId ?? null,
         payload.category ?? null,
+        payload.savingsGoalId ?? null,
+        payload.loanId ?? null,
         payload.description,
         payload.transactionDate,
         payload.notes,
