@@ -2,9 +2,10 @@ import '../global.css';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { BrandedSplash } from '../src/components/BrandedSplash';
 import { getDatabase } from '../src/database/db';
 import { useLoanReminderScheduler, useLoans } from '../src/hooks/useLoans';
 import { useTransactionsForCouple } from '../src/hooks/useTransactions';
@@ -26,9 +27,19 @@ const queryClient = new QueryClient();
 // registered once, before anything could possibly arrive.
 registerNotificationHandler();
 
+// Keeps the native splash (app.json's expo-splash-screen config) on screen past its own default
+// auto-hide, until this file explicitly calls hideAsync() below — the gap between the two is
+// covered by <BrandedSplash />, which reuses the same logo + background color, so the handoff is
+// visually seamless. Never a race: this call is synchronous at module load, before RootLayout's
+// effects can run. Swallowing the rejection is deliberate — it only ever throws if called twice
+// (e.g. Fast Refresh in dev), which is harmless here.
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+
 /**
- * Three protected route groups gate on auth + couple-membership state:
- *  - (auth): not logged in yet
+ * Four protected route groups gate on session + biometric + couple-membership state:
+ *  - welcome: no session at all — a brand-new device or a fully logged-out one
+ *  - (auth): a session exists but hasn't cleared the biometric gate yet this launch — goes
+ *    straight to Login (not welcome) so its existing auto-biometric-unlock effect still fires
  *  - (onboarding): logged in, hasn't created/joined a couple yet
  *  - (tabs): logged in and paired — the main app
  * `calendar` (the create/edit modals) shares the (tabs) guard since it's equally couple-scoped.
@@ -62,6 +73,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (isHydrated) {
       setIsReady(true);
+      // The one and only place the native splash is dismissed — exactly when session
+      // restoration has actually finished, never on a timer. <BrandedSplash /> below covers the
+      // (typically imperceptible) gap between this call resolving and RootNavigator mounting.
+      void SplashScreen.hideAsync();
     }
   }, [isHydrated]);
 
@@ -117,11 +132,10 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         {!isReady ? (
-          <View className="flex-1 items-center justify-center bg-cream">
-            <ActivityIndicator color="#5B7FBE" />
-          </View>
+          <BrandedSplash />
         ) : (
           <RootNavigator
+            hasSession={session !== null}
             isAuthenticated={session !== null && isBiometricGatePassed}
             hasCouple={hasCouple}
             coupleId={session?.user.coupleId ?? undefined}
@@ -134,11 +148,13 @@ export default function RootLayout() {
 }
 
 function RootNavigator({
+  hasSession,
   isAuthenticated,
   hasCouple,
   coupleId,
   userId,
 }: {
+  hasSession: boolean;
   isAuthenticated: boolean;
   hasCouple: boolean;
   coupleId: string | undefined;
@@ -154,7 +170,10 @@ function RootNavigator({
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Protected guard={!isAuthenticated}>
+      <Stack.Protected guard={!hasSession}>
+        <Stack.Screen name="welcome" />
+      </Stack.Protected>
+      <Stack.Protected guard={hasSession && !isAuthenticated}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
       <Stack.Protected guard={isAuthenticated && !hasCouple}>

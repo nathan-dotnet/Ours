@@ -27,11 +27,16 @@ export async function getBiometricCapability(): Promise<BiometricCapability> {
     return { available: false, type: 'other' };
   }
 
+  // Fingerprint is checked first: on Android, supportedAuthenticationTypesAsync() reflects what
+  // the device's hardware could technically do, not what the user actually enrolled per type — a
+  // phone with only a fingerprint sensor set up can still report FACIAL_RECOGNITION as "supported"
+  // because of its front camera. iOS has no such overlap (Face ID and Touch ID are mutually
+  // exclusive per device), so this ordering is safe there too.
   const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-  const type: BiometricType = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)
-    ? 'facial'
-    : types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
-      ? 'fingerprint'
+  const type: BiometricType = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
+    ? 'fingerprint'
+    : types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)
+      ? 'facial'
       : 'other';
 
   return { available: true, type };

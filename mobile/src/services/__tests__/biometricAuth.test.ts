@@ -63,6 +63,14 @@ describe('getBiometricCapability', () => {
 
     expect(await getBiometricCapability()).toEqual({ available: true, type: 'fingerprint' });
   });
+
+  it('prefers fingerprint when a device reports both types (e.g. Android face-unlock hardware present but only a fingerprint enrolled)', async () => {
+    mockHasHardwareAsync.mockResolvedValue(true);
+    mockIsEnrolledAsync.mockResolvedValue(true);
+    mockSupportedAuthenticationTypesAsync.mockResolvedValue([2, 1]);
+
+    expect(await getBiometricCapability()).toEqual({ available: true, type: 'fingerprint' });
+  });
 });
 
 describe('enableBiometricLogin / isBiometricLoginEnabled / disableBiometricLogin', () => {

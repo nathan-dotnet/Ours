@@ -39,13 +39,13 @@
       [
         "expo-secure-store",
         {
-          "faceIDPermission": "Ours uses Face ID to unlock your account faster."
+          "faceIDPermission": "Ours uses Biometrics to unlock your account faster."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Ours uses Face ID to unlock your account faster."
+          "faceIDPermission": "Ours uses Biometrics to unlock your account faster."
         }
       ],
       "@react-native-community/datetimepicker",
@@ -61,6 +61,15 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#2268E5"
         }
       ]
     ],
