@@ -38,8 +38,9 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 /**
  * Four protected route groups gate on session + biometric + couple-membership state:
  *  - welcome: no session at all — a brand-new device or a fully logged-out one
- *  - (auth): a session exists but hasn't cleared the biometric gate yet this launch — goes
- *    straight to Login (not welcome) so its existing auto-biometric-unlock effect still fires
+ *  - (auth): no active app authentication — either logged out (where the user can register or
+ *    log in) or a restored session that hasn't cleared the biometric gate yet this launch (where
+ *    Login's existing auto-biometric-unlock effect still fires)
  *  - (onboarding): logged in, hasn't created/joined a couple yet
  *  - (tabs): logged in and paired — the main app
  * `calendar` (the create/edit modals) shares the (tabs) guard since it's equally couple-scoped.
@@ -173,7 +174,10 @@ function RootNavigator({
       <Stack.Protected guard={!hasSession}>
         <Stack.Screen name="welcome" />
       </Stack.Protected>
-      <Stack.Protected guard={hasSession && !isAuthenticated}>
+      {/* Auth must also be available without a session: Welcome links into Register/Login.
+          A restored session that still needs biometric verification remains eligible so Login
+          can perform its existing unlock flow. */}
+      <Stack.Protected guard={!isAuthenticated}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
       <Stack.Protected guard={isAuthenticated && !hasCouple}>

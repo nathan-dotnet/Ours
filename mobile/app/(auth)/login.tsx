@@ -136,7 +136,7 @@ export default function LoginScreen() {
               />
             )}
           />
-          <Link href="/(auth)/forgot-password" className="self-end text-sm font-medium text-rose">
+          <Link href="/forgot-password" className="self-end text-sm font-medium text-rose">
             Forgot Password?
           </Link>
         </View>
@@ -152,7 +152,7 @@ export default function LoginScreen() {
 
       <View className="flex-row justify-center gap-1 pt-6">
         <Text className="text-clay">New here?</Text>
-        <Link href="/(auth)/register" className="font-semibold text-rose">
+        <Link href="/register" className="font-semibold text-rose">
           Create an account
         </Link>
       </View>

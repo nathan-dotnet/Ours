@@ -49,7 +49,7 @@ export default function ForgotPasswordScreen() {
           <Text className="text-center text-clay">
             If an account exists for {submittedEmail}, we've sent a link to reset your password.
           </Text>
-          <Button label="Back to Login" onPress={() => router.replace('/(auth)/login')} />
+          <Button label="Back to Login" onPress={() => router.replace('/login')} />
         </View>
       </Screen>
     );
@@ -84,7 +84,7 @@ export default function ForgotPasswordScreen() {
       </View>
 
       <View className="flex-row justify-center pt-6">
-        <Link href="/(auth)/login" className="font-semibold text-rose">
+        <Link href="/login" className="font-semibold text-rose">
           Back to Login
         </Link>
       </View>

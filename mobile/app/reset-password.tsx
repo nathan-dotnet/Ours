@@ -55,7 +55,7 @@ export default function ResetPasswordScreen() {
           <Text className="text-center text-clay">
             This link is missing some information. Request a new one from the Forgot Password screen.
           </Text>
-          <Button label="Back to Login" onPress={() => router.replace('/(auth)/login')} />
+          <Button label="Back to Login" onPress={() => router.replace('/login')} />
         </View>
       </Screen>
     );
@@ -67,7 +67,7 @@ export default function ResetPasswordScreen() {
         <View className="flex-1 items-center justify-center gap-4">
           <Text className="text-2xl font-semibold text-ink">Password changed successfully</Text>
           <Text className="text-center text-clay">Log in with your new password to continue.</Text>
-          <Button label="Return to Login" onPress={() => router.replace('/(auth)/login')} />
+          <Button label="Return to Login" onPress={() => router.replace('/login')} />
         </View>
       </Screen>
     );
