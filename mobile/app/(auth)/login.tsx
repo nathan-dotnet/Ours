@@ -68,6 +68,11 @@ export default function LoginScreen() {
       await login(values);
       await maybeOfferBiometricEnrollment();
     } catch (error) {
+      // The UI deliberately keeps network errors user-friendly, but retain the native fetch
+      // failure in Metro so a device-specific TLS/DNS/connectivity problem is diagnosable.
+      if (!(error instanceof ApiError)) {
+        console.error('Login request failed before receiving an API response:', error);
+      }
       setServerError(error instanceof ApiError ? error.message : 'Could not log in. Check your connection and try again.');
     } finally {
       setIsSubmitting(false);
