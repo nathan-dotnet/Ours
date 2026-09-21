@@ -31,6 +31,6 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 # Render provides the PORT environment variable
-ENV ASPNETCORE_URLS=http://0.0.0.0:${PORT}
+ENV ASPNETCORE_URLS=http://0.0.0.0:80
 
 ENTRYPOINT ["dotnet", "Ours.Api.dll"]
