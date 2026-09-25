@@ -40,6 +40,7 @@ WORKDIR /app
 # Copy published application
 COPY --from=build /app/publish .
 
+
 # Vercel provides PORT.
 # Default to port 80 if PORT is not set.
 ENTRYPOINT ["sh", "-c", "dotnet Ours.Api.dll --urls http://0.0.0.0:${PORT:-80}"]
