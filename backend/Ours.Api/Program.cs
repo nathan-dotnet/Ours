@@ -100,6 +100,13 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Health check
+app.MapGet("/", () => Results.Ok(new
+{
+    status = "ok",
+    service = "Ours API"
+}));
+
 app.Run();
 
 // Exposed for WebApplicationFactory<Program> in integration tests.
