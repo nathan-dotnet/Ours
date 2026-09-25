@@ -1,15 +1,20 @@
+# ============================================
 # Build stage
+# ============================================
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
 WORKDIR /src
 
-# Copy solution and project files
+# Copy solution and project files first
+# This allows Docker to cache the restore layer
 COPY Ours.slnx ./
+
 COPY Ours.Api/Ours.Api.csproj Ours.Api/
 COPY Ours.Application/Ours.Application.csproj Ours.Application/
 COPY Ours.Domain/Ours.Domain.csproj Ours.Domain/
 COPY Ours.Infrastructure/Ours.Infrastructure.csproj Ours.Infrastructure/
 
-# Restore dependencies
+# Restore NuGet dependencies
 RUN dotnet restore Ours.Api/Ours.Api.csproj
 
 # Copy source code
@@ -24,13 +29,20 @@ RUN dotnet publish Ours.Api/Ours.Api.csproj \
     -o /app/publish \
     --no-restore
 
+
+# ============================================
 # Runtime stage
+# ============================================
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+
 WORKDIR /app
 
+# Copy published application
 COPY --from=build /app/publish .
 
-# Render provides the PORT environment variable
-ENV ASPNETCORE_URLS=http://0.0.0.0:80
+# Vercel provides the PORT environment variable
+# ASP.NET Core must listen on that port
+ENV ASPNETCORE_URLS=http://0.0.0.0:${PORT}
 
+# Start the API
 ENTRYPOINT ["dotnet", "Ours.Api.dll"]
