@@ -8,7 +8,7 @@ import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
 import { useAuthActions } from '@/hooks/useAuthActions';
 import { attemptBiometricLogin, useBiometricCapability, useBiometricLoginEnabled } from '@/hooks/useBiometricAuth';
-import { ApiError } from '@/services/api';
+import { ApiConfigurationError, ApiConnectionError, ApiError } from '@/services/api';
 import { biometricLabel, enableBiometricLogin } from '@/services/biometricAuth';
 import { useAuthStore } from '@/stores/authStore';
 import { loginSchema, type LoginFormValues } from '@/validation/auth';
@@ -68,12 +68,17 @@ export default function LoginScreen() {
       await login(values);
       await maybeOfferBiometricEnrollment();
     } catch (error) {
-      // The UI deliberately keeps network errors user-friendly, but retain the native fetch
-      // failure in Metro so a device-specific TLS/DNS/connectivity problem is diagnosable.
-      if (!(error instanceof ApiError)) {
+      // Keep the lower-level fetch failure in Metro while giving the person logging in enough
+      // context to distinguish an unreachable server from a rejected password.
+      if (error instanceof ApiConnectionError) {
         console.error('Login request failed before receiving an API response:', error);
+        setServerError(`Cannot reach the Ours server (${error.apiHost}). Check your internet connection and try again.`);
+      } else if (error instanceof ApiConfigurationError) {
+        console.error('Login request cannot start because the app API configuration is invalid:', error);
+        setServerError(error.message);
+      } else {
+        setServerError(error instanceof ApiError ? error.message : 'Could not log in. Please try again.');
       }
-      setServerError(error instanceof ApiError ? error.message : 'Could not log in. Check your connection and try again.');
     } finally {
       setIsSubmitting(false);
     }

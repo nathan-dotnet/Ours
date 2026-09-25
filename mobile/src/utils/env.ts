@@ -1,11 +1,7 @@
-const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-
-if (!apiUrl) {
-  throw new Error(
-    'EXPO_PUBLIC_API_URL is not set. Copy .env.example to .env and point it at your backend ' +
-      '(see the comments in that file for simulator/device-specific values).',
-  );
-}
+// EXPO_PUBLIC_* values are embedded when Expo creates the JavaScript bundle. Keep the value
+// available even when a stale/misconfigured build omitted it so the API client can show a
+// recoverable, actionable error on the login screen instead of crashing during module import.
+const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
 
 export const env = {
   apiUrl,

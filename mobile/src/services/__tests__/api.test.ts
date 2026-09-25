@@ -1,5 +1,5 @@
 import { useAuthStore } from '../../stores/authStore';
-import { ApiError, api, isNetworkError } from '../api';
+import { ApiConnectionError, ApiError, api, isNetworkError } from '../api';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(async () => null),
@@ -23,14 +23,12 @@ function jsonResponse(status: number, body: unknown) {
 }
 
 describe('isNetworkError', () => {
-  it('treats a TypeError (web fetch failure) as a network error', () => {
-    expect(isNetworkError(new TypeError('Network request failed'))).toBe(true);
+  it('does not classify an unwrapped fetch error as a network error', () => {
+    expect(isNetworkError(new TypeError('Network request failed'))).toBe(false);
   });
 
-  it('treats a plain Error (React Native fetch failure, e.g. ConnectException) as a network error', () => {
-    expect(isNetworkError(new Error('fetch failed: java.net.ConnectException: Failed to connect to /192.168.1.1:5100'))).toBe(
-      true,
-    );
+  it('treats a typed API connection failure as a network error', () => {
+    expect(isNetworkError(new ApiConnectionError('ours-api.example.com', new Error('Network request failed')))).toBe(true);
   });
 
   it('does not treat an ApiError as a network error', () => {
@@ -73,5 +71,15 @@ describe('api request 401 handling', () => {
 
     await expect(api.getMyCouple()).rejects.toBeInstanceOf(ApiError);
     expect(useAuthStore.getState().session).toBeNull();
+  });
+
+  it('wraps a fetch failure with the configured API host for actionable UI errors', async () => {
+    global.fetch = jest.fn().mockRejectedValueOnce(new TypeError('Network request failed')) as never;
+
+    await expect(api.login('alice@example.com', 'password')).rejects.toMatchObject({
+      name: 'ApiConnectionError',
+      apiHost: 'localhost:5100',
+      message: 'Could not reach the Ours API at localhost:5100.',
+    });
   });
 });

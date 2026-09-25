@@ -31,6 +31,62 @@ export class ApiError extends Error {
   }
 }
 
+/** A request could not be started because the bundled server address is missing or invalid. */
+export class ApiConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiConfigurationError';
+  }
+}
+
+/** The device could not obtain an HTTP response from the configured API. */
+export class ApiConnectionError extends Error {
+  constructor(
+    public readonly apiHost: string,
+    public readonly cause: unknown,
+  ) {
+    super(`Could not reach the Ours API at ${apiHost}.`);
+    this.name = 'ApiConnectionError';
+  }
+}
+
+function getApiUrl(): string {
+  if (!env.apiUrl) {
+    throw new ApiConfigurationError('This app build is missing its server address. Please update the app and try again.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(env.apiUrl);
+  } catch {
+    throw new ApiConfigurationError('This app build has an invalid server address. Please update the app and try again.');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new ApiConfigurationError('This app build has an unsupported server address. Please update the app and try again.');
+  }
+
+  return env.apiUrl;
+}
+
+function getApiHost(): string {
+  try {
+    return new URL(getApiUrl()).host;
+  } catch (error) {
+    if (error instanceof ApiConfigurationError) throw error;
+    return 'the configured server';
+  }
+}
+
+async function fetchApi(path: string, init: RequestInit): Promise<Response> {
+  const apiUrl = getApiUrl();
+  try {
+    return await fetch(`${apiUrl}${path}`, init);
+  } catch (error) {
+    throw new ApiConnectionError(getApiHost(), error);
+  }
+}
+
 /**
  * True for network failures (no response at all) — the signal callers use to decide "go
  * offline", vs. a real server error. `request()` below only ever throws ApiError for an actual
@@ -40,7 +96,7 @@ export class ApiError extends Error {
  * java.net.ConnectException: ...") for the exact same condition.
  */
 export function isNetworkError(error: unknown): boolean {
-  return !(error instanceof ApiError);
+  return error instanceof ApiConnectionError;
 }
 
 // Only one refresh should ever be in flight — concurrent 401s (a foreground request racing the
@@ -54,7 +110,7 @@ async function refreshAccessToken(): Promise<AuthResponseDto> {
       if (!session) {
         throw new ApiError(401, 'Not authenticated.');
       }
-      const response = await fetch(`${env.apiUrl}/api/auth/refresh`, {
+      const response = await fetchApi('/api/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: session.refreshToken }),
@@ -90,7 +146,7 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
     }
   }
 
-  const response = await fetch(`${env.apiUrl}${path}`, {
+  const response = await fetchApi(path, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
