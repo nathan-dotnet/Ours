@@ -71,7 +71,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#2268E5"
         }
-      ]
+      ],
+      "./plugins/withAdaptiveIconForegroundInset"
     ],
     "extra": {
       "router": {},
