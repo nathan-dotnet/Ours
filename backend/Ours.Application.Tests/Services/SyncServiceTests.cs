@@ -278,7 +278,11 @@ public class SyncServiceTests
         DateTimeOffset? endAt = null,
         string operation = SyncOperation.Create,
         bool allDay = false,
-        string? location = null) => new()
+        string? location = null,
+        string repeatType = "None",
+        int repeatInterval = 1,
+        DateOnly? repeatUntil = null,
+        int repeatDaysOfWeek = 0) => new()
     {
         EntityType = SyncService.CalendarEventEntityType,
         EntityId = entityId,
@@ -291,6 +295,10 @@ public class SyncServiceTests
             endAt = endAt ?? clientUpdatedAt.AddHours(1),
             allDay,
             location,
+            repeatType,
+            repeatInterval,
+            repeatUntil,
+            repeatDaysOfWeek,
         }),
     };
 
@@ -367,6 +375,111 @@ public class SyncServiceTests
         var payload = Assert.IsType<Ours.Application.DTOs.Calendar.CalendarEventPayloadDto>(change.Payload);
         Assert.True(payload.AllDay);
         Assert.Equal("Santa Monica", payload.Location);
+    }
+
+    [Fact]
+    public async Task PushAsync_RoundTripsCalendarRecurrenceMetadata_WithoutExpandingOccurrences()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var eventId = Guid.NewGuid();
+
+        await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CalendarEventPush(eventId, clock.UtcNow, repeatType: "Weekly", repeatInterval: 2,
+                repeatUntil: new DateOnly(2027, 1, 1), repeatDaysOfWeek: 10)],
+        });
+
+        var pulled = await service.PullAsync(since: null);
+        var payload = Assert.IsType<Ours.Application.DTOs.Calendar.CalendarEventPayloadDto>(
+            Assert.Single(pulled.Changes, c => c.EntityId == eventId).Payload);
+        var stored = await db.CalendarEvents.ToListAsync();
+
+        Assert.Single(stored);
+        Assert.Equal("Weekly", payload.RepeatType);
+        Assert.Equal(2, payload.RepeatInterval);
+        Assert.Equal(new DateOnly(2027, 1, 1), payload.RepeatUntil);
+        Assert.Equal(10, payload.RepeatDaysOfWeek);
+    }
+
+    [Theory]
+    [InlineData("Biweekly", 1, 0)]
+    [InlineData("Weekly", 0, 0)]
+    [InlineData("Weekly", 1, 128)]
+    public async Task PushAsync_RejectsInvalidCalendarRecurrenceMetadata(string repeatType, int repeatInterval, int repeatDaysOfWeek)
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, _) = await BuildAsync(currentUser);
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [CalendarEventPush(Guid.NewGuid(), clock.UtcNow, repeatType: repeatType,
+                repeatInterval: repeatInterval, repeatDaysOfWeek: repeatDaysOfWeek)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
+    }
+
+    private static SyncPushItemDto LoanSchedulePush(Guid entityId, Guid loanId, DateTimeOffset updatedAt,
+        DateOnly dueDate, decimal plannedAmount, string operation = SyncOperation.Create) => new()
+    {
+        EntityType = SyncService.LoanPaymentScheduleEntityType,
+        EntityId = entityId,
+        Operation = operation,
+        ClientUpdatedAt = updatedAt,
+        Payload = JsonSerializer.SerializeToElement(new { loanId, dueDate, plannedAmount }),
+    };
+
+    [Fact]
+    public async Task PushAsync_CreatesAndPullsLoanPaymentSchedule_WithoutCreatingPaymentTransactions()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, couple, db) = await BuildAsync(currentUser);
+        var account = new Account { Id = Guid.NewGuid(), CoupleId = couple.Id, Name = "Checking", OpeningBalance = 0m };
+        var loan = new Loan
+        {
+            Id = Guid.NewGuid(), CoupleId = couple.Id, Name = "Installment", OriginalAmount = 500m,
+            MonthlyPayment = 100m, TotalInstallments = 5, FirstDueDate = new DateOnly(2026, 10, 1),
+            PaymentAccountId = account.Id,
+        };
+        db.Accounts.Add(account);
+        db.Loans.Add(loan);
+        await db.SaveChangesAsync();
+        var scheduleId = Guid.NewGuid();
+
+        var result = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanSchedulePush(scheduleId, loan.Id, clock.UtcNow, new DateOnly(2026, 10, 15), 100m)],
+        });
+
+        Assert.True(Assert.Single(result.Results).Accepted);
+        var pulled = await service.PullAsync(null);
+        var change = Assert.Single(pulled.Changes, c => c.EntityId == scheduleId);
+        var payload = Assert.IsType<Ours.Application.DTOs.Money.LoanPaymentSchedulePayloadDto>(change.Payload);
+        Assert.Equal(loan.Id, payload.LoanId);
+        Assert.Empty(await db.Transactions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PushAsync_RejectsLoanPaymentScheduleForLoanOwnedByAnotherCouple()
+    {
+        var currentUser = new FakeCurrentUserService { UserId = Guid.NewGuid() };
+        var (service, clock, _, db) = await BuildAsync(currentUser);
+        var otherLoan = new Loan
+        {
+            Id = Guid.NewGuid(), CoupleId = Guid.NewGuid(), Name = "Other", OriginalAmount = 100m,
+            MonthlyPayment = 10m, TotalInstallments = 10, FirstDueDate = new DateOnly(2026, 10, 1),
+            PaymentAccountId = Guid.NewGuid(),
+        };
+        db.Loans.Add(otherLoan);
+        await db.SaveChangesAsync();
+
+        var response = await service.PushAsync(new SyncPushRequestDto
+        {
+            Changes = [LoanSchedulePush(Guid.NewGuid(), otherLoan.Id, clock.UtcNow, new DateOnly(2026, 10, 15), 10m)],
+        });
+
+        Assert.False(Assert.Single(response.Results).Accepted);
     }
 
     [Fact]

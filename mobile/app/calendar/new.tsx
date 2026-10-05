@@ -47,6 +47,10 @@ export default function NewEventScreen() {
           allDay: values.allDay,
           location: values.location?.trim() || null,
           reminderAt: reminderAt?.toISOString() ?? null,
+          repeatType: values.repeatType,
+          repeatInterval: Number(values.repeatIntervalText),
+          repeatUntil: values.repeatForever ? null : values.repeatUntilText.trim() || null,
+          repeatDaysOfWeek: values.repeatType === 'Weekly' ? values.repeatDaysOfWeek : 0,
         },
         user.id,
       );
@@ -63,7 +67,7 @@ export default function NewEventScreen() {
   return (
     <Screen scroll>
       <CalendarEventForm
-        initialValues={{ title: '', description: '', startAt: start, endAt: end, allDay: false, location: '', reminderMinutesBefore: null }}
+        initialValues={{ title: '', description: '', startAt: start, endAt: end, allDay: false, location: '', reminderMinutesBefore: null, repeatType: 'None', repeatIntervalText: '1', repeatUntilText: '', repeatForever: true, repeatDaysOfWeek: 1 << start.getDay() }}
         submitLabel="Add event"
         isSubmitting={isSubmitting}
         serverError={error}

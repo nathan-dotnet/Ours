@@ -104,6 +104,12 @@ export interface CalendarEventPayload {
   allDay?: boolean;
   location?: string | null;
   reminderAt: string | null;
+  repeatType?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
+  repeatInterval?: number;
+  repeatUntil?: string | null;
+  repeatDaysOfWeek?: number;
+  recurrenceParentId?: string | null;
+  originalOccurrenceStartAt?: string | null;
   /** Only ever present on a pulled change — the server sets it, a push never needs to. */
   createdByUserId?: string;
 }
@@ -179,6 +185,13 @@ export interface LoanPayload {
   paymentAccountId: string;
   /** Null means Joint. */
   ownerUserId?: string | null;
+}
+
+/** Planned loan installment payload; id and sync metadata use the standard top-level sync fields. */
+export interface LoanPaymentSchedulePayload {
+  loanId: string;
+  dueDate: string;
+  plannedAmount: number;
 }
 
 export type SyncOperationDto = 'CREATE' | 'UPDATE' | 'DELETE';

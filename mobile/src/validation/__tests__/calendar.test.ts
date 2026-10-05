@@ -56,4 +56,16 @@ describe('calendarEventSchema', () => {
     expect(calendarEventSchema.safeParse(values({ location: 'Santa Monica' })).success).toBe(true);
     expect(calendarEventSchema.safeParse(values({ location: '' })).success).toBe(true);
   });
+
+  it('requires a real ISO date for recurrence end dates', () => {
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Monthly', repeatUntilText: '2026-02-30' })).success).toBe(false);
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Monthly', repeatForever: false, repeatUntilText: '2026-12-31' })).success).toBe(true);
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Monthly', repeatForever: false, repeatUntilText: '2026-02-28' })).success).toBe(false);
+  });
+
+  it('requires a selected day for weekly repetition and an end date when Until date is selected', () => {
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Weekly' })).success).toBe(false);
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Weekly', repeatDaysOfWeek: 1 << 5 })).success).toBe(true);
+    expect(calendarEventSchema.safeParse(values({ repeatType: 'Daily', repeatForever: false })).success).toBe(false);
+  });
 });

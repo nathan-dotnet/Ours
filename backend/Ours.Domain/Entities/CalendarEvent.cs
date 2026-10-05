@@ -34,6 +34,18 @@ public class CalendarEvent : ISyncableEntity
     /// <summary>Optional reminder time. Scheduling an actual device notification for it is Phase 6 — this is just the stored value for now.</summary>
     public DateTimeOffset? ReminderAt { get; set; }
 
+    public string RepeatType { get; set; } = "None";
+
+    public int RepeatInterval { get; set; } = 1;
+
+    public DateOnly? RepeatUntil { get; set; }
+
+    public int RepeatDaysOfWeek { get; set; }
+
+    public Guid? RecurrenceParentId { get; set; }
+
+    public DateTimeOffset? OriginalOccurrenceStartAt { get; set; }
+
     public Guid CreatedByUserId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

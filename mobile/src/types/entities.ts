@@ -51,6 +51,12 @@ export interface CalendarEvent {
   all_day: number; // 0 | 1
   location: string | null;
   reminder_at: string | null; // ISO datetime
+  repeat_type: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
+  repeat_interval: number;
+  repeat_until: string | null; // ISO date
+  repeat_days_of_week: number; // Sunday bit 0 through Saturday bit 6
+  recurrence_parent_id: string | null;
+  original_occurrence_start_at: string | null; // ISO datetime
   created_by_user_id: string;
   created_at: string;
   updated_at: string;
@@ -170,6 +176,19 @@ export interface Loan {
   /** Which couple member this loan belongs to — null means Joint (shared), same "null = unspecified/shared" convention as Transaction.paid_by_user_id. */
   owner_user_id: string | null;
   created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  updated_by_user_id: string;
+  version: number;
+  is_deleted: number;
+}
+
+/** A separately synced planned due date and amount; actual paid values come only from LoanPayment transactions. */
+export interface LoanPaymentSchedule {
+  id: string;
+  loan_id: string;
+  due_date: string; // ISO date
+  planned_amount_cents: number;
   created_at: string;
   updated_at: string;
   updated_by_user_id: string;

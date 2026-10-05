@@ -34,6 +34,7 @@ public class SyncService(
     public const string BudgetEntityType = "budget";
     public const string SavingsGoalEntityType = "savings_goal";
     public const string LoanEntityType = "loan";
+    public const string LoanPaymentScheduleEntityType = "loan_payment_schedule";
     public const string VaultItemEntityType = "vault_item";
 
     /// <summary>Sanity ceiling on password length — independent of the column's actual varchar(200) headroom.</summary>
@@ -116,6 +117,12 @@ public class SyncService(
                     AllDay = calendarEvent.AllDay,
                     Location = calendarEvent.Location,
                     ReminderAt = calendarEvent.ReminderAt,
+                    RepeatType = calendarEvent.RepeatType,
+                    RepeatInterval = calendarEvent.RepeatInterval,
+                    RepeatUntil = calendarEvent.RepeatUntil,
+                    RepeatDaysOfWeek = calendarEvent.RepeatDaysOfWeek,
+                    RecurrenceParentId = calendarEvent.RecurrenceParentId,
+                    OriginalOccurrenceStartAt = calendarEvent.OriginalOccurrenceStartAt,
                     CreatedByUserId = calendarEvent.CreatedByUserId,
                 },
                 UpdatedAt = calendarEvent.UpdatedAt,
@@ -260,6 +267,28 @@ public class SyncService(
             });
         }
 
+        var loanPaymentSchedules = await db.LoanPaymentSchedules
+            .Where(s => s.CoupleId == coupleId && (since == null || s.UpdatedAt > since))
+            .ToListAsync(ct);
+        foreach (var schedule in loanPaymentSchedules)
+        {
+            changes.Add(new SyncChangeDto
+            {
+                EntityType = LoanPaymentScheduleEntityType,
+                EntityId = schedule.Id,
+                Operation = schedule.IsDeleted ? SyncOperation.Delete : SyncOperation.Update,
+                Payload = schedule.IsDeleted ? null : new LoanPaymentSchedulePayloadDto
+                {
+                    LoanId = schedule.LoanId,
+                    DueDate = schedule.DueDate,
+                    PlannedAmount = schedule.PlannedAmount,
+                },
+                UpdatedAt = schedule.UpdatedAt,
+                UpdatedByUserId = schedule.UpdatedByUserId,
+                Version = schedule.Version,
+            });
+        }
+
         var vaultItems = await db.VaultItems
             .Where(v => v.CoupleId == coupleId && (since == null || v.UpdatedAt > since))
             .ToListAsync(ct);
@@ -331,6 +360,7 @@ public class SyncService(
                 BudgetEntityType => await ApplyBudgetChangeAsync(coupleId, item, ct),
                 SavingsGoalEntityType => await ApplySavingsGoalChangeAsync(coupleId, item, ct),
                 LoanEntityType => await ApplyLoanChangeAsync(coupleId, item, ct),
+                LoanPaymentScheduleEntityType => await ApplyLoanPaymentScheduleChangeAsync(coupleId, item, ct),
                 VaultItemEntityType => await ApplyVaultItemChangeAsync(coupleId, item, ct),
                 _ => Rejected(item, $"Unknown entity type '{item.EntityType}'."),
             };
@@ -545,6 +575,43 @@ public class SyncService(
             return Rejected(item, "End time must be after start time.");
         }
 
+        if (payload.RepeatType is not ("None" or "Daily" or "Weekly" or "Monthly" or "Yearly"))
+        {
+            return Rejected(item, "Invalid recurrence type.");
+        }
+
+        if (payload.RepeatInterval < 1)
+        {
+            return Rejected(item, "Recurrence interval must be at least 1.");
+        }
+
+        if (payload.RepeatDaysOfWeek is < 0 or > 127)
+        {
+            return Rejected(item, "Recurrence weekdays must be a seven-bit mask.");
+        }
+
+        if (payload.RepeatType == "Weekly" && payload.RepeatDaysOfWeek == 0)
+        {
+            return Rejected(item, "Choose at least one weekday for a weekly event.");
+        }
+
+        if (payload.RepeatUntil is DateOnly repeatUntil && repeatUntil < DateOnly.FromDateTime(payload.StartAt.Date))
+        {
+            return Rejected(item, "Repeat-until date must be on or after the event start date.");
+        }
+
+        if ((payload.RecurrenceParentId is null) != (payload.OriginalOccurrenceStartAt is null)
+            || payload.RecurrenceParentId == item.EntityId)
+        {
+            return Rejected(item, "Occurrence overrides require a different parent event and original start time.");
+        }
+
+        if (payload.RecurrenceParentId is Guid parentId
+            && !await db.CalendarEvents.AnyAsync(e => e.Id == parentId && e.CoupleId == coupleId, ct))
+        {
+            return Rejected(item, "Recurrence parent must belong to your couple.");
+        }
+
         var now = clock.UtcNow;
 
         if (existing is null)
@@ -569,6 +636,12 @@ public class SyncService(
         existing.AllDay = payload.AllDay;
         existing.Location = payload.Location;
         existing.ReminderAt = payload.ReminderAt;
+        existing.RepeatType = payload.RepeatType;
+        existing.RepeatInterval = payload.RepeatInterval;
+        existing.RepeatUntil = payload.RepeatUntil;
+        existing.RepeatDaysOfWeek = payload.RepeatDaysOfWeek;
+        existing.RecurrenceParentId = payload.RecurrenceParentId;
+        existing.OriginalOccurrenceStartAt = payload.OriginalOccurrenceStartAt;
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;
         existing.Version += 1;
@@ -1233,6 +1306,93 @@ public class SyncService(
         existing.Currency = payload.Currency;
         existing.PaymentAccountId = payload.PaymentAccountId;
         existing.OwnerUserId = payload.OwnerUserId;
+        existing.UpdatedAt = now;
+        existing.UpdatedByUserId = currentUser.UserId;
+        existing.Version += 1;
+
+        return Accepted(item, existing.Version, existing.UpdatedAt);
+    }
+
+    private async Task<SyncPushResultItemDto> ApplyLoanPaymentScheduleChangeAsync(Guid coupleId, SyncPushItemDto item, CancellationToken ct)
+    {
+        var existing = await db.LoanPaymentSchedules.FirstOrDefaultAsync(s => s.Id == item.EntityId, ct);
+
+        if (existing is not null && existing.CoupleId != coupleId)
+        {
+            return Rejected(item, "You may only sync your own couple's loan schedules.");
+        }
+
+        if (item.Operation == SyncOperation.Delete)
+        {
+            if (existing is null)
+            {
+                return Accepted(item, serverVersion: null, serverUpdatedAt: null);
+            }
+            if (item.ClientUpdatedAt < existing.UpdatedAt)
+            {
+                return StaleWrite(item, existing.Version, existing.UpdatedAt);
+            }
+
+            existing.IsDeleted = true;
+            existing.UpdatedAt = clock.UtcNow;
+            existing.UpdatedByUserId = currentUser.UserId;
+            existing.Version += 1;
+            return Accepted(item, existing.Version, existing.UpdatedAt);
+        }
+
+        if (existing is not null && item.ClientUpdatedAt < existing.UpdatedAt)
+        {
+            return StaleWrite(item, existing.Version, existing.UpdatedAt);
+        }
+
+        LoanPaymentSchedulePayloadDto? payload;
+        try
+        {
+            payload = item.Payload.Deserialize<LoanPaymentSchedulePayloadDto>(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload is null)
+        {
+            return Rejected(item, "Invalid payload.");
+        }
+
+        if (payload.PlannedAmount <= 0 || payload.PlannedAmount > MaxMoneyAmount)
+        {
+            return Rejected(item, "Planned amount must be greater than zero and within the maximum allowed.");
+        }
+
+        if (payload.DueDate.Year is < 2000 or > 2100)
+        {
+            return Rejected(item, "Invalid due date.");
+        }
+
+        var loan = await db.Loans.FirstOrDefaultAsync(l => l.Id == payload.LoanId && l.CoupleId == coupleId && !l.IsDeleted, ct);
+        if (loan is null)
+        {
+            return Rejected(item, "Loan must be active and belong to your couple.");
+        }
+
+        var now = clock.UtcNow;
+        if (existing is null)
+        {
+            existing = new LoanPaymentSchedule
+            {
+                Id = item.EntityId,
+                LoanId = payload.LoanId,
+                CoupleId = coupleId,
+                CreatedAt = now,
+                Version = 0,
+            };
+            db.LoanPaymentSchedules.Add(existing);
+        }
+
+        existing.LoanId = payload.LoanId;
+        existing.DueDate = payload.DueDate;
+        existing.PlannedAmount = payload.PlannedAmount;
         existing.UpdatedAt = now;
         existing.UpdatedByUserId = currentUser.UserId;
         existing.Version += 1;

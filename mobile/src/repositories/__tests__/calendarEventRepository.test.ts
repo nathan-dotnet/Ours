@@ -173,6 +173,21 @@ describe('calendarEventRepository', () => {
     expect(await calendarEventRepository.getById(withoutFields.id)).toMatchObject({ all_day: 0, location: null });
   });
 
+  it('stores and queues recurring-rule fields with contract defaults', async () => {
+    const startAt = new Date('2026-06-01T09:00:00.000Z').toISOString();
+    const event = await calendarEventRepository.createLocally(COUPLE_ID, {
+      title: 'Weekly check-in', description: null, startAt,
+      endAt: new Date('2026-06-01T10:00:00.000Z').toISOString(), reminderAt: null,
+      repeatType: 'Weekly', repeatInterval: 2, repeatUntil: '2026-12-31', repeatDaysOfWeek: 10,
+    }, USER_ID);
+    expect(await calendarEventRepository.getById(event.id)).toMatchObject({
+      repeat_type: 'Weekly', repeat_interval: 2, repeat_until: '2026-12-31', repeat_days_of_week: 10,
+      recurrence_parent_id: null, original_occurrence_start_at: null,
+    });
+    const [queued] = await syncQueueRepository.getPending();
+    expect(JSON.parse(queued.payload)).toMatchObject({ repeatType: 'Weekly', repeatInterval: 2, repeatUntil: '2026-12-31', repeatDaysOfWeek: 10 });
+  });
+
   it('updateLocally writes allDay and location', async () => {
     const event = await calendarEventRepository.createLocally(
       COUPLE_ID,

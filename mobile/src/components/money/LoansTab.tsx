@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { Button } from '../Button';
 import { Card } from '../Card';
 import { EmptyState } from '../EmptyState';
@@ -7,10 +8,11 @@ import { LoanCard } from '../LoanCard';
 import { MoneySectionHeader } from '../MoneySectionHeader';
 import { MoneyStat } from '../MoneyStat';
 import type { Account, CoupleMember, Loan, Transaction } from '../../types/entities';
+import { useLoanPaymentSchedulesForLoans } from '../../hooks/useLoanPaymentSchedules';
 import { useAuthStore } from '../../stores/authStore';
 import { fromLocalDateString } from '../../utils/date';
 import { calculateLoanPaidAmount, calculateLoanRemainingBalance } from '../../utils/moneyCalculations';
-import { getLoanDueStatus, getLoanProgress, getNextUnpaidInstallment, isSameMonth } from '../../utils/loanSchedule';
+import { getLoanDueStatus, getLoanMonthScheduleSummary, getLoanProgress, getNextUnpaidInstallment, isSameMonth } from '../../utils/loanSchedule';
 import { formatMoney } from '../../utils/money';
 
 interface LoansTabProps {
@@ -35,7 +37,19 @@ export function LoansTab({ members, accounts, loans, transactions }: LoansTabPro
   const router = useRouter();
   const user = useAuthStore((s) => s.session?.user);
   const today = new Date();
+  const [reportMonth, setReportMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const { data: schedules } = useLoanPaymentSchedulesForLoans(loans.map((loan) => loan.id));
   const currency = accounts[0]?.currency ?? 'PHP';
+  const monthSummaries = loans.map((loan) => getLoanMonthScheduleSummary(
+    loan,
+    schedules ?? [],
+    transactions,
+    reportMonth.getFullYear(),
+    reportMonth.getMonth() + 1,
+  ));
+  const reportDueCents = monthSummaries.reduce((sum, summary) => sum + summary.dueCents, 0);
+  const reportPaidCents = monthSummaries.reduce((sum, summary) => sum + summary.paidCents, 0);
+  const reportRemainingCents = monthSummaries.reduce((sum, summary) => sum + summary.remainingCents, 0);
 
   const rows = loans.map((loan) => {
     const paidAmountCents = calculateLoanPaidAmount(loan.id, transactions);
@@ -83,6 +97,31 @@ export function LoansTab({ members, accounts, loans, transactions }: LoansTabPro
           </Text>
         ) : null}
       </View>
+
+      {loans.length > 0 ? (
+        <View className="gap-2">
+          <View className="flex-row items-center justify-center gap-6">
+            <Pressable onPress={() => setReportMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} accessibilityLabel="Previous loan month">
+              <Text className="px-2 py-1 text-lg text-accent">‹</Text>
+            </Pressable>
+            <Text className="text-sm font-semibold text-textPrimary">{new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(reportMonth)}</Text>
+            <Pressable onPress={() => setReportMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} accessibilityLabel="Next loan month">
+              <Text className="px-2 py-1 text-lg text-accent">›</Text>
+            </Pressable>
+          </View>
+          <Card className="gap-3 p-4">
+            <MoneyStat label="Total Due" value={formatMoney(reportDueCents, currency)} size="sm" />
+            <MoneyStat label="Total Paid" value={formatMoney(reportPaidCents, currency)} size="sm" />
+            <MoneyStat label="Remaining" value={formatMoney(reportRemainingCents, currency)} size="sm" />
+            {loans.map((loan, index) => monthSummaries[index].dueCents > 0 ? (
+              <View key={loan.id} className="flex-row items-center justify-between border-t border-border pt-2">
+                <Text className="text-sm text-textSecondary">{loan.name}</Text>
+                <Text className="text-sm font-semibold text-textPrimary">{formatMoney(monthSummaries[index].dueCents, loan.currency)}</Text>
+              </View>
+            ) : null)}
+          </Card>
+        </View>
+      ) : null}
 
       {loans.length > 0 ? (
         <Card className="flex-row justify-between">

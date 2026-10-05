@@ -13,6 +13,7 @@ import { MoneyStat } from '../MoneyStat';
 import { ProgressBar, type ProgressTone } from '../ProgressBar';
 import { TransactionRow } from '../TransactionRow';
 import type { Account, Budget, Couple, CoupleMember, Loan, Transaction } from '../../types/entities';
+import { useLoanPaymentSchedulesForLoans } from '../../hooks/useLoanPaymentSchedules';
 import { chunkIntoRows, getAccountGridView } from '../../utils/accountGrid';
 import { calculateBucketAmountCents, calculateCombinedIncomeCents } from '../../utils/allocationCalculations';
 import {
@@ -22,9 +23,10 @@ import {
   calculateLoanPaidAmount,
   calculateLoanRemainingBalance,
   calculateMonthlySpending,
+  calculateMonthlyTransactionTotal,
   calculateTotalBalance,
 } from '../../utils/moneyCalculations';
-import { getLoanDueStatus, getLoanProgress, getNextUnpaidInstallment, isSameMonth } from '../../utils/loanSchedule';
+import { getLoanDueStatus, getLoanMonthScheduleSummary, getLoanProgress, getNextUnpaidInstallment, isSameMonth } from '../../utils/loanSchedule';
 import { describeTransaction } from '../../utils/moneyActivity';
 import { formatMoney } from '../../utils/money';
 import { filterExpenses, groupExpensesByDay, type ExpenseFilter } from '../../utils/spendLog';
@@ -91,6 +93,7 @@ export function BudgetTab({ couple, members, accounts, transactions, budgets, lo
   const toggleFilter = (kind: FilterKind) => setExpandedFilter((current) => (current === kind ? null : kind));
 
   const currency = accounts[0]?.currency ?? 'PHP';
+  const { data: loanSchedules } = useLoanPaymentSchedulesForLoans(loans.map((loan) => loan.id));
 
   const totalBalanceCents = calculateTotalBalance(accounts, transactions);
   const categoryBudgets = budgets.filter((b) => b.category !== WANTS_CATEGORY);
@@ -119,6 +122,11 @@ export function BudgetTab({ couple, members, accounts, transactions, budgets, lo
     month,
   );
   const wantsRemainingCents = (wantsAmountCents ?? 0) - wantsSpentCents;
+  const wantsPercentUsed = wantsAmountCents && wantsAmountCents > 0 ? Math.round((wantsSpentCents / wantsAmountCents) * 100) : 0;
+  const wantsOverBudget = wantsRemainingCents < 0;
+  const loanPaymentsThisMonthCents = calculateMonthlyTransactionTotal(transactions, 'LoanPayment', year, month);
+  const savingsContributionsThisMonthCents = calculateMonthlyTransactionTotal(transactions, 'SavingsContribution', year, month);
+  const savingsWithdrawalsThisMonthCents = calculateMonthlyTransactionTotal(transactions, 'SavingsWithdrawal', year, month);
 
   const { visible: visibleAccounts, hasMore: hasMoreAccounts } = getAccountGridView(accounts, accountsExpanded);
 
@@ -138,6 +146,12 @@ export function BudgetTab({ couple, members, accounts, transactions, budgets, lo
   const dueThisMonthLoanCents = activeLoanRows
     .filter((r) => r.next && isSameMonth(r.next.dueDate, today))
     .reduce((sum, r) => sum + (r.next?.remainingCents ?? 0), 0);
+  const monthlyLoanSummaries = loans.map((loan) => getLoanMonthScheduleSummary(loan, loanSchedules ?? [], transactions, year, month));
+  const monthlyLoanDueCents = monthlyLoanSummaries.reduce((sum, summary) => sum + summary.dueCents, 0);
+  const monthlyLoanPaidCents = monthlyLoanSummaries.reduce((sum, summary) => sum + summary.paidCents, 0);
+  const monthlyLoanRemainingCents = monthlyLoanSummaries.reduce((sum, summary) => sum + summary.remainingCents, 0);
+  const monthlyIncomeCents = combinedIncomeCents;
+  const monthlyRemainingMoneyCents = monthlyIncomeCents - spentThisMonthCents - wantsSpentCents - savingsContributionsThisMonthCents - loanPaymentsThisMonthCents;
 
   // Spending (formerly the standalone Spend Log tab): everyday Expense transactions for the
   // selected month, filterable and grouped by day — see utils/spendLog.ts. This is a filter/group
@@ -257,11 +271,30 @@ export function BudgetTab({ couple, members, accounts, transactions, budgets, lo
               valueClassName={wantsRemainingCents < 0 ? 'text-error' : 'text-textPrimary'}
             />
           </Card>
+          <View className="gap-1.5 px-1">
+            <ProgressBar percent={wantsPercentUsed} tone={wantsOverBudget ? 'error' : wantsPercentUsed >= 80 ? 'warning' : 'accent'} />
+            <Text className={`text-xs ${wantsOverBudget ? 'font-semibold text-error' : 'text-textMuted'}`}>
+              {wantsOverBudget ? `Over budget by ${formatMoney(Math.abs(wantsRemainingCents), currency)}` : `${wantsPercentUsed}% used`}
+            </Text>
+          </View>
           <Pressable onPress={() => router.push('/transactions/new?type=Expense')} className="items-center py-1">
             <Text className="text-sm font-semibold text-accent">+ Log a Want</Text>
           </Pressable>
         </View>
       ) : null}
+
+      <View className="gap-2">
+        <MoneySectionHeader label="Month Breakdown" />
+        <Card className="gap-3 p-4">
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Income</Text><Text className="font-semibold text-textPrimary">{formatMoney(monthlyIncomeCents, currency)}</Text></View>
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Ordinary expenses (excludes Wants)</Text><Text className="font-semibold text-textPrimary">{formatMoney(spentThisMonthCents, currency)}</Text></View>
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Wants expenses</Text><Text className="font-semibold text-textPrimary">{formatMoney(wantsSpentCents, currency)}</Text></View>
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Loan payments</Text><Text className="font-semibold text-textPrimary">{formatMoney(loanPaymentsThisMonthCents, currency)}</Text></View>
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Savings contributions</Text><Text className="font-semibold text-textPrimary">{formatMoney(savingsContributionsThisMonthCents, currency)}</Text></View>
+          <View className="flex-row justify-between"><Text className="text-sm text-textSecondary">Savings withdrawals</Text><Text className="font-semibold text-textPrimary">{formatMoney(savingsWithdrawalsThisMonthCents, currency)}</Text></View>
+          <View className="flex-row justify-between border-t border-border pt-2"><Text className="text-sm font-semibold text-textPrimary">Remaining money</Text><Text className={`font-semibold ${monthlyRemainingMoneyCents < 0 ? 'text-error' : 'text-textPrimary'}`}>{formatMoney(monthlyRemainingMoneyCents, currency)}</Text></View>
+        </Card>
+      </View>
 
       {/* Loans: a compact summary card — full loan cards/payment history/Pay live on the Loans tab. */}
       {loans.length > 0 ? (
@@ -269,7 +302,9 @@ export function BudgetTab({ couple, members, accounts, transactions, budgets, lo
           <MoneySectionHeader label="Loans" />
           <Card className="flex-row justify-between">
             <MoneyStat label="Total Debt" value={formatMoney(totalDebtCents, currency)} size="sm" />
-            <MoneyStat label="Due This Month" value={formatMoney(dueThisMonthLoanCents, currency)} size="sm" />
+            <MoneyStat label="Due This Month" value={formatMoney(monthlyLoanDueCents, currency)} size="sm" />
+            <MoneyStat label="Paid" value={formatMoney(monthlyLoanPaidCents, currency)} size="sm" />
+            <MoneyStat label="Remaining" value={formatMoney(monthlyLoanRemainingCents, currency)} size="sm" />
           </Card>
           <Pressable onPress={onViewLoans} className="items-center py-1">
             <Text className="text-sm font-semibold text-accent">View Loans →</Text>

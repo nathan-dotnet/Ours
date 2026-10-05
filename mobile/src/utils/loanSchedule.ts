@@ -1,4 +1,4 @@
-import type { Loan, Transaction } from '../types/entities';
+import type { Loan, LoanPaymentSchedule, Transaction } from '../types/entities';
 import { fromLocalDateString, toLocalDateString } from './date';
 
 /**
@@ -77,6 +77,58 @@ export function allocatePaymentsToSchedule(schedule: ScheduledInstallment[], pay
     const remainingCents = installment.scheduledAmountCents - paidTowardCents;
     return { ...installment, paidTowardCents, remainingCents, isFullyPaid: remainingCents <= 0 };
   });
+}
+
+export interface LoanMonthScheduleSummary {
+  dueCents: number;
+  paidCents: number;
+  remainingCents: number;
+  rows: Array<{ schedule: LoanPaymentSchedule; progress: InstallmentProgress; isCustom: boolean }>;
+}
+
+/** Matches a selected month's planned rows to that loan's existing transaction ledger. */
+export function getLoanMonthScheduleSummary(
+  loan: Loan,
+  schedules: LoanPaymentSchedule[],
+  transactions: Transaction[],
+  year: number,
+  month: number,
+): LoanMonthScheduleSummary {
+  const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`;
+  const customRows = schedules
+    .filter((row) => !row.is_deleted && row.loan_id === loan.id && row.due_date.startsWith(monthPrefix))
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const isCustom = customRows.length > 0;
+  const selected: LoanPaymentSchedule[] = isCustom
+    ? customRows
+    : generateLoanSchedule(loan)
+        .filter((row) => row.dueDate.startsWith(monthPrefix))
+        .map((row) => ({
+          id: `projection-${row.installmentNumber}`,
+          loan_id: loan.id,
+          due_date: row.dueDate,
+          planned_amount_cents: row.scheduledAmountCents,
+          created_at: loan.created_at,
+          updated_at: loan.updated_at,
+          updated_by_user_id: loan.updated_by_user_id,
+          version: loan.version,
+          is_deleted: 0,
+        }));
+  const payments = transactions
+    .filter((row) => !row.is_deleted && row.type === 'LoanPayment' && row.loan_id === loan.id && row.transaction_date.startsWith(monthPrefix))
+    .sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
+  const allocated = allocatePaymentsToSchedule(
+    selected.map((row, index) => ({ installmentNumber: index + 1, dueDate: row.due_date, scheduledAmountCents: row.planned_amount_cents })),
+    payments.map((row) => row.amount_cents),
+  );
+  const dueCents = selected.reduce((total, row) => total + row.planned_amount_cents, 0);
+  const paidCents = payments.reduce((total, row) => total + row.amount_cents, 0);
+  return {
+    dueCents,
+    paidCents,
+    remainingCents: Math.max(0, dueCents - paidCents),
+    rows: selected.map((schedule, index) => ({ schedule, progress: allocated[index], isCustom })),
+  };
 }
 
 /** Convenience: generates the schedule and allocates this loan's own LoanPayment transactions against it, in one call. */

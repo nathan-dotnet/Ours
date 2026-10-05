@@ -205,6 +205,74 @@ public class CalendarSyncFlowTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task WeeklyRecurrence_RequiresAtLeastOneSelectedWeekday()
+    {
+        var (client, alice, _) = await CreatePairedCoupleAsync(_factory, "weekly-validation");
+        Authorize(client, alice.Auth.AccessToken);
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+        var response = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.CalendarEventEntityType,
+                    EntityId = Guid.NewGuid(),
+                    Operation = SyncOperation.Create,
+                    ClientUpdatedAt = DateTimeOffset.UtcNow,
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Dinner",
+                        startAt = start,
+                        endAt = start.AddHours(1),
+                        repeatType = "Weekly",
+                        repeatInterval = 1,
+                        repeatDaysOfWeek = 0,
+                    }),
+                },
+            ],
+        });
+
+        var result = (await response.Content.ReadFromJsonAsync<SyncPushResponseDto>())!;
+        Assert.False(result.Results[0].Accepted);
+        Assert.Contains("weekday", result.Results[0].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RecurrenceUntilBeforeStartDate_IsRejected()
+    {
+        var (client, alice, _) = await CreatePairedCoupleAsync(_factory, "until-validation");
+        Authorize(client, alice.Auth.AccessToken);
+        var start = DateTimeOffset.UtcNow.AddDays(2);
+        var response = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequestDto
+        {
+            Changes =
+            [
+                new SyncPushItemDto
+                {
+                    EntityType = SyncService.CalendarEventEntityType,
+                    EntityId = Guid.NewGuid(),
+                    Operation = SyncOperation.Create,
+                    ClientUpdatedAt = DateTimeOffset.UtcNow,
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Dinner",
+                        startAt = start,
+                        endAt = start.AddHours(1),
+                        repeatType = "Daily",
+                        repeatInterval = 1,
+                        repeatUntil = DateOnly.FromDateTime(start.UtcDateTime.AddDays(-1)).ToString("yyyy-MM-dd"),
+                    }),
+                },
+            ],
+        });
+
+        var result = (await response.Content.ReadFromJsonAsync<SyncPushResponseDto>())!;
+        Assert.False(result.Results[0].Accepted);
+        Assert.Contains("on or after", result.Results[0].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task CoupleA_CannotEditCoupleBsEvent()
     {
         var (clientA, aliceA, _) = await CreatePairedCoupleAsync(_factory, "a");

@@ -9,7 +9,7 @@
  *    (Phase 2) follow this same shape — later phases add one table per new entity the same way.
  */
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 /** Statements applied when moving from schema version 0 -> 1. */
 export const MIGRATION_V1 = `
@@ -338,4 +338,30 @@ export const MIGRATION_V10_ADD_COLUMNS = `
 
 export const MIGRATION_V10_DROP_DUE_DAY = `
   ALTER TABLE loans DROP COLUMN due_day;
+`;
+
+/** Adds recurring calendar rules and separately synced planned loan installments. */
+export const MIGRATION_V11 = `
+  ALTER TABLE calendar_events ADD COLUMN repeat_type TEXT NOT NULL DEFAULT 'None';
+  ALTER TABLE calendar_events ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE calendar_events ADD COLUMN repeat_until TEXT;
+  ALTER TABLE calendar_events ADD COLUMN repeat_days_of_week INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE calendar_events ADD COLUMN recurrence_parent_id TEXT;
+  ALTER TABLE calendar_events ADD COLUMN original_occurrence_start_at TEXT;
+
+  CREATE INDEX IF NOT EXISTS idx_calendar_events_recurrence_parent_id ON calendar_events (recurrence_parent_id);
+
+  CREATE TABLE IF NOT EXISTS loan_payment_schedules (
+    id TEXT PRIMARY KEY NOT NULL,
+    loan_id TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    planned_amount_cents INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_deleted INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_loan_payment_schedules_loan_due_date ON loan_payment_schedules (loan_id, due_date);
 `;

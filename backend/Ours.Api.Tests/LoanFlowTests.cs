@@ -62,6 +62,15 @@ public class LoanFlowTests : IClassFixture<CustomWebApplicationFactory>
         }),
     };
 
+    private static SyncPushItemDto LoanSchedulePush(Guid id, Guid loanId, DateOnly dueDate, decimal plannedAmount) => new()
+    {
+        EntityType = SyncService.LoanPaymentScheduleEntityType,
+        EntityId = id,
+        Operation = SyncOperation.Create,
+        ClientUpdatedAt = DateTimeOffset.UtcNow,
+        Payload = JsonSerializer.SerializeToElement(new { loanId, dueDate, plannedAmount }),
+    };
+
     private static async Task<(HttpClient Client, Guid GCashId, Guid LoanId)> SetUpAsync(CustomWebApplicationFactory factory, string suffix)
     {
         var client = factory.CreateClient();
@@ -130,6 +139,34 @@ public class LoanFlowTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(1_700m, loanPayments[0].Amount);
         Assert.Equal(gcashId, loanPayments[0].AccountId);
         Assert.Equal(loanId, loanPayments[0].LoanId);
+    }
+
+    [Fact]
+    public async Task MonthReport_UsesPlannedScheduleAndActualPaymentDate()
+    {
+        var (client, gcashId, loanId) = await SetUpAsync(_factory, "month-report");
+        var scheduleResponse = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequestDto
+        {
+            Changes = [LoanSchedulePush(Guid.NewGuid(), loanId, new DateOnly(2026, 10, 15), 600m)],
+        });
+        scheduleResponse.EnsureSuccessStatusCode();
+
+        var paymentResponse = await client.PostAsJsonAsync($"/api/loans/{loanId}/payments", new LoanPaymentRequestDto
+        {
+            PaymentId = Guid.NewGuid(),
+            Amount = 300m,
+            AccountId = gcashId,
+            PaymentDate = new DateOnly(2026, 10, 20),
+        });
+        paymentResponse.EnsureSuccessStatusCode();
+
+        var report = await client.GetFromJsonAsync<LoanMonthReportDto>("/api/loans/month-report?year=2026&month=10");
+
+        Assert.NotNull(report);
+        Assert.Equal(600m, report.TotalDue);
+        Assert.Equal(300m, report.TotalPaid);
+        Assert.Equal(300m, report.Remaining);
+        Assert.Equal(loanId, Assert.Single(report.Loans).LoanId);
     }
 
     [Fact]

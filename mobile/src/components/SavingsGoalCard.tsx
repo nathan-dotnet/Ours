@@ -1,18 +1,20 @@
 import { Pressable, Text, View } from 'react-native';
-import { ProgressBar } from './ProgressBar';
+import { SavingsProgressBar } from './SavingsProgressBar';
 import { formatMoney } from '../utils/money';
 
 interface SavingsGoalCardProps {
   name: string;
-  currentAmountCents: number;
+  allocatedAmountCents: number;
+  spentAmountCents: number;
+  remainingAmountCents: number;
   targetAmountCents: number;
   currency: string;
   onPress: () => void;
 }
 
 /** One savings goal's progress — a monogram, name, current/target, percent, and a filled bar, so progress reads at a glance on a bordered flat row. */
-export function SavingsGoalCard({ name, currentAmountCents, targetAmountCents, currency, onPress }: SavingsGoalCardProps) {
-  const progress = targetAmountCents > 0 ? Math.min(currentAmountCents / targetAmountCents, 1) : 0;
+export function SavingsGoalCard({ name, allocatedAmountCents, spentAmountCents, remainingAmountCents, targetAmountCents, currency, onPress }: SavingsGoalCardProps) {
+  const progress = targetAmountCents > 0 ? Math.max(0, Math.min(remainingAmountCents / targetAmountCents, 1)) : 0;
   const percent = Math.round(progress * 100);
   const isComplete = percent >= 100;
 
@@ -26,13 +28,15 @@ export function SavingsGoalCard({ name, currentAmountCents, targetAmountCents, c
           <Text className="text-base font-semibold text-textPrimary" numberOfLines={1}>
             {name}
           </Text>
-          <Text className="text-xs text-textSecondary">
-            {formatMoney(currentAmountCents, currency)} / {formatMoney(targetAmountCents, currency)}
-          </Text>
+          <Text className="text-xs text-textSecondary">{formatMoney(remainingAmountCents, currency)} remaining of {formatMoney(targetAmountCents, currency)}</Text>
         </View>
         <Text className={`text-sm font-bold ${isComplete ? 'text-success' : 'text-textPrimary'}`}>{percent}%</Text>
       </View>
-      <ProgressBar percent={percent} tone={isComplete ? 'success' : 'accent'} />
+      <View className="flex-row justify-between">
+        <Text className="text-xs text-textSecondary">Allocated {formatMoney(allocatedAmountCents, currency)}</Text>
+        <Text className="text-xs text-textSecondary">Spent {formatMoney(spentAmountCents, currency)}</Text>
+      </View>
+      <SavingsProgressBar allocatedCents={allocatedAmountCents} spentCents={spentAmountCents} targetCents={targetAmountCents} />
     </Pressable>
   );
 }

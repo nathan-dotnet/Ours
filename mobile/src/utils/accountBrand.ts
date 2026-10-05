@@ -24,6 +24,7 @@ const KNOWN_BRANDS: Record<string, AccountBrand> = {
   gotyme: { isKnownBrand: true, logo: require('../../assets/brands/gotyme.png'), emoji: '🏦', label: 'GoTyme' },
   gcash: { isKnownBrand: true, logo: require('../../assets/brands/gcash.png'), emoji: '📱', label: 'GCash' },
   maribank: { isKnownBrand: true, logo: require('../../assets/brands/maribank.png'), emoji: '🏦', label: 'MariBank' },
+  maya: { isKnownBrand: true, logo: require('../../assets/brands/maya.png'), emoji: '📱', label: 'Maya' },
   cash: { isKnownBrand: false, logo: null, emoji: '💵', label: 'Cash' },
 };
 
@@ -40,7 +41,7 @@ const GENERIC_BY_TYPE: Record<string, AccountBrand> = {
  * generic option per type. Not a restriction: an account's `icon` can be any string, this list is
  * just what the picker offers.
  */
-export const ACCOUNT_ICON_OPTIONS = ['maribank', 'bpi', 'bdo', 'gotyme', 'gcash', 'cash', 'generic'] as const;
+export const ACCOUNT_ICON_OPTIONS = ['maribank', 'maya', 'bpi', 'bdo', 'gotyme', 'gcash', 'cash', 'generic'] as const;
 
 export function getAccountBrand(icon: string, accountType: string): AccountBrand {
   return KNOWN_BRANDS[icon.toLowerCase()] ?? GENERIC_BY_TYPE[accountType] ?? GENERIC_BY_TYPE.Other;

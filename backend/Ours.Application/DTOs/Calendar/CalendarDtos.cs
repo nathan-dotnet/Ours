@@ -28,6 +28,18 @@ public sealed class CalendarEventPayloadDto
 
     public DateTimeOffset? ReminderAt { get; init; }
 
+    public string RepeatType { get; init; } = "None";
+
+    public int RepeatInterval { get; init; } = 1;
+
+    public DateOnly? RepeatUntil { get; init; }
+
+    public int RepeatDaysOfWeek { get; init; }
+
+    public Guid? RecurrenceParentId { get; init; }
+
+    public DateTimeOffset? OriginalOccurrenceStartAt { get; init; }
+
     /// <summary>
     /// Set by the server on pull; a client push doesn't need to (and can't) set who created an
     /// event — the server always derives that from the authenticated user on first creation.

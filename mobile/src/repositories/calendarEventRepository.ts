@@ -16,6 +16,12 @@ export interface CalendarEventInput {
   allDay?: boolean;
   location?: string | null;
   reminderAt: string | null; // ISO datetime
+  repeatType?: CalendarEvent['repeat_type'];
+  repeatInterval?: number;
+  repeatUntil?: string | null;
+  repeatDaysOfWeek?: number;
+  recurrenceParentId?: string | null;
+  originalOccurrenceStartAt?: string | null;
 }
 
 function toPayload(input: CalendarEventInput): CalendarEventPayload {
@@ -27,6 +33,12 @@ function toPayload(input: CalendarEventInput): CalendarEventPayload {
     allDay: input.allDay ?? false,
     location: input.location ?? null,
     reminderAt: input.reminderAt,
+    repeatType: input.repeatType ?? 'None',
+    repeatInterval: input.repeatInterval ?? 1,
+    repeatUntil: input.repeatUntil ?? null,
+    repeatDaysOfWeek: input.repeatDaysOfWeek ?? 0,
+    recurrenceParentId: input.recurrenceParentId ?? null,
+    originalOccurrenceStartAt: input.originalOccurrenceStartAt ?? null,
   };
 }
 
@@ -63,8 +75,8 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `INSERT INTO calendar_events
-         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, repeat_type, repeat_interval, repeat_until, repeat_days_of_week, recurrence_parent_id, original_occurrence_start_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
       [
         id,
         coupleId,
@@ -75,6 +87,12 @@ export const calendarEventRepository = {
         input.allDay ? 1 : 0,
         input.location ?? null,
         input.reminderAt,
+        input.repeatType ?? 'None',
+        input.repeatInterval ?? 1,
+        input.repeatUntil ?? null,
+        input.repeatDaysOfWeek ?? 0,
+        input.recurrenceParentId ?? null,
+        input.originalOccurrenceStartAt ?? null,
         createdByUserId,
         now,
         now,
@@ -94,6 +112,12 @@ export const calendarEventRepository = {
       all_day: input.allDay ? 1 : 0,
       location: input.location ?? null,
       reminder_at: input.reminderAt,
+      repeat_type: input.repeatType ?? 'None',
+      repeat_interval: input.repeatInterval ?? 1,
+      repeat_until: input.repeatUntil ?? null,
+      repeat_days_of_week: input.repeatDaysOfWeek ?? 0,
+      recurrence_parent_id: input.recurrenceParentId ?? null,
+      original_occurrence_start_at: input.originalOccurrenceStartAt ?? null,
       created_by_user_id: createdByUserId,
       created_at: now,
       updated_at: now,
@@ -110,7 +134,7 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `UPDATE calendar_events
-       SET title = ?, description = ?, start_at = ?, end_at = ?, all_day = ?, location = ?, reminder_at = ?, updated_at = ?, updated_by_user_id = ?
+      SET title = ?, description = ?, start_at = ?, end_at = ?, all_day = ?, location = ?, reminder_at = ?, repeat_type = ?, repeat_interval = ?, repeat_until = ?, repeat_days_of_week = ?, recurrence_parent_id = ?, original_occurrence_start_at = ?, updated_at = ?, updated_by_user_id = ?
        WHERE id = ?`,
       [
         input.title,
@@ -120,6 +144,12 @@ export const calendarEventRepository = {
         input.allDay ? 1 : 0,
         input.location ?? null,
         input.reminderAt,
+        input.repeatType ?? 'None',
+        input.repeatInterval ?? 1,
+        input.repeatUntil ?? null,
+        input.repeatDaysOfWeek ?? 0,
+        input.recurrenceParentId ?? null,
+        input.originalOccurrenceStartAt ?? null,
         updatedAt,
         updatedByUserId,
         event.id,
@@ -164,8 +194,8 @@ export const calendarEventRepository = {
 
     await db.runAsync(
       `INSERT INTO calendar_events
-         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+         (id, couple_id, title, description, start_at, end_at, all_day, location, reminder_at, repeat_type, repeat_interval, repeat_until, repeat_days_of_week, recurrence_parent_id, original_occurrence_start_at, created_by_user_id, created_at, updated_at, updated_by_user_id, version, is_deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          description = excluded.description,
@@ -174,6 +204,12 @@ export const calendarEventRepository = {
          all_day = excluded.all_day,
          location = excluded.location,
          reminder_at = excluded.reminder_at,
+         repeat_type = excluded.repeat_type,
+         repeat_interval = excluded.repeat_interval,
+         repeat_until = excluded.repeat_until,
+         repeat_days_of_week = excluded.repeat_days_of_week,
+         recurrence_parent_id = excluded.recurrence_parent_id,
+         original_occurrence_start_at = excluded.original_occurrence_start_at,
          updated_at = excluded.updated_at,
          updated_by_user_id = excluded.updated_by_user_id,
          version = excluded.version,
@@ -188,6 +224,12 @@ export const calendarEventRepository = {
         payload.allDay ? 1 : 0,
         payload.location ?? null,
         payload.reminderAt,
+        payload.repeatType ?? 'None',
+        payload.repeatInterval ?? 1,
+        payload.repeatUntil ?? null,
+        payload.repeatDaysOfWeek ?? 0,
+        payload.recurrenceParentId ?? null,
+        payload.originalOccurrenceStartAt ?? null,
         // The server always sets this on a pulled change; falling back to updatedByUserId would
         // only ever matter if that contract were ever violated.
         payload.createdByUserId ?? updatedByUserId,

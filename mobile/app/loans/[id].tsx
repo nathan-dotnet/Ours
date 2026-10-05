@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { AccountPickerField } from '@/components/AccountPickerField';
 import { Button } from '@/components/Button';
 import { LoanForm } from '@/components/LoanForm';
@@ -8,18 +8,20 @@ import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
 import { useActiveAccounts } from '@/hooks/useAccounts';
 import { useLocalCouple } from '@/hooks/useCouple';
+import { useDeleteLoanPaymentSchedule, useLoanPaymentSchedules, useSaveLoanPaymentSchedule } from '@/hooks/useLoanPaymentSchedules';
 import { useDeleteLoan, useLoan, usePayLoan, useUpdateLoan } from '@/hooks/useLoans';
 import { useTransactionsForCouple } from '@/hooks/useTransactions';
 import { useAuthStore } from '@/stores/authStore';
 import { softRaised } from '@/styles/neumorphism';
 import { fromLocalDateString, toLocalDateString } from '@/utils/date';
-import { getLoanDueStatus, getLoanProgress, getNextUnpaidInstallment } from '@/utils/loanSchedule';
+import { getLoanDueStatus, getLoanMonthScheduleSummary, getLoanProgress, getNextUnpaidInstallment } from '@/utils/loanSchedule';
 import { calculateAccountBalance, calculateLoanPaidAmount, calculateLoanRemainingBalance } from '@/utils/moneyCalculations';
 import { centsToAmountInput, formatMoney, parseAmountInputToCents } from '@/utils/money';
 import { generateUuid } from '@/utils/uuid';
 import type { LoanFormValues } from '@/validation/loan';
 
 const shortDateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
 
 /**
  * A loan's remaining balance/progress/status are never stored — they're derived from its
@@ -34,6 +36,9 @@ export default function LoanDetailScreen() {
   const { data: loan, isLoading } = useLoan(id);
   const { data: accounts } = useActiveAccounts(coupleData?.couple.id);
   const { data: transactions } = useTransactionsForCouple(coupleData?.couple.id);
+  const { data: plannedSchedule } = useLoanPaymentSchedules(loan?.id);
+  const saveSchedule = useSaveLoanPaymentSchedule();
+  const deleteSchedule = useDeleteLoanPaymentSchedule();
   const updateLoan = useUpdateLoan();
   const deleteLoan = useDeleteLoan();
   const payLoan = usePayLoan();
@@ -44,6 +49,12 @@ export default function LoanDetailScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleMonth, setScheduleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [scheduleDateText, setScheduleDateText] = useState('');
+  const [scheduleAmountText, setScheduleAmountText] = useState('');
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [isScheduleSaving, setIsScheduleSaving] = useState(false);
 
   const [isPaying, setIsPaying] = useState(pay === '1');
   const [payAmountText, setPayAmountText] = useState('');
@@ -57,6 +68,12 @@ export default function LoanDetailScreen() {
 
   const progress = loan ? getLoanProgress(loan, allTransactions) : [];
   const next = getNextUnpaidInstallment(progress);
+  const monthlySummary = loan
+    ? getLoanMonthScheduleSummary(loan, plannedSchedule ?? [], allTransactions, scheduleMonth.getFullYear(), scheduleMonth.getMonth() + 1)
+    : { dueCents: 0, paidCents: 0, remainingCents: 0, rows: [] };
+  const monthlyDueCents = monthlySummary.dueCents;
+  const monthlyPaidCents = monthlySummary.paidCents;
+  const monthlyRemainingCents = monthlySummary.remainingCents;
 
   useEffect(() => {
     if (loan && payAmountText === '') {
@@ -107,6 +124,39 @@ export default function LoanDetailScreen() {
     setFormOwnerId(loan.owner_user_id);
     setError(null);
     setIsEditing(true);
+  };
+
+  const startScheduleEdit = (schedule?: NonNullable<typeof plannedSchedule>[number]) => {
+    setEditingScheduleId(schedule?.id ?? 'new');
+    setScheduleDateText(schedule?.due_date ?? `${scheduleMonth.getFullYear()}-${String(scheduleMonth.getMonth() + 1).padStart(2, '0')}-01`);
+    setScheduleAmountText(schedule ? centsToAmountInput(schedule.planned_amount_cents) : '');
+    setScheduleError(null);
+  };
+
+  const onSaveSchedule = async () => {
+    if (!loan || !user) return;
+    const date = new Date(`${scheduleDateText}T12:00:00`);
+    const amountCents = parseAmountInputToCents(scheduleAmountText);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDateText) || Number.isNaN(date.getTime()) || toLocalDateString(date) !== scheduleDateText) {
+      setScheduleError('Enter a valid due date as YYYY-MM-DD.');
+      return;
+    }
+    if (amountCents === null || amountCents <= 0) {
+      setScheduleError('Enter a planned amount greater than zero.');
+      return;
+    }
+    setScheduleError(null);
+    setIsScheduleSaving(true);
+    try {
+      const existing = (plannedSchedule ?? []).find((row) => row.id === editingScheduleId);
+      await saveSchedule(existing ?? null, { loanId: loan.id, dueDate: scheduleDateText, plannedAmountCents: amountCents }, user.id);
+      setScheduleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+      setEditingScheduleId(null);
+    } catch {
+      setScheduleError('Could not save this planned payment.');
+    } finally {
+      setIsScheduleSaving(false);
+    }
   };
 
   const onSubmit = async (values: LoanFormValues) => {
@@ -316,6 +366,53 @@ export default function LoanDetailScreen() {
       </View>
 
       {error ? <Text className="text-sm text-rose">{error}</Text> : null}
+
+      <View className="gap-3 border-t border-clay/20 pt-4">
+        <Text className="text-sm font-semibold text-clay">Monthly Plan</Text>
+        <View className="flex-row items-center justify-between">
+          <Pressable onPress={() => setScheduleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} accessibilityLabel="Previous schedule month">
+            <Text className="px-3 py-1 text-lg text-accent">‹</Text>
+          </Pressable>
+          <Text className="text-sm font-semibold text-ink">{monthFormatter.format(scheduleMonth)}</Text>
+          <Pressable onPress={() => setScheduleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} accessibilityLabel="Next schedule month">
+            <Text className="px-3 py-1 text-lg text-accent">›</Text>
+          </Pressable>
+        </View>
+        <View className="flex-row justify-between rounded-xl border border-border bg-surface p-3">
+          <View><Text className="text-xs text-textMuted">Due</Text><Text className="font-semibold text-textPrimary">{formatMoney(monthlyDueCents, loan.currency)}</Text></View>
+          <View><Text className="text-xs text-textMuted">Paid</Text><Text className="font-semibold text-textPrimary">{formatMoney(monthlyPaidCents, loan.currency)}</Text></View>
+          <View><Text className="text-xs text-textMuted">Remaining</Text><Text className={`font-semibold ${monthlyRemainingCents > 0 ? 'text-warning' : 'text-success'}`}>{formatMoney(monthlyRemainingCents, loan.currency)}</Text></View>
+        </View>
+        {monthlySummary.rows.map(({ schedule, progress: rowProgress, isCustom }) => {
+          return (
+            <View key={schedule.id} className="flex-row items-center justify-between rounded-xl border border-border bg-surface p-3">
+              <Pressable onPress={() => startScheduleEdit(schedule)} className="flex-1 gap-1">
+                <Text className="font-medium text-textPrimary">Due {shortDateFormatter.format(fromLocalDateString(schedule.due_date))}</Text>
+                <Text className="text-xs text-textSecondary">{formatMoney(rowProgress?.paidTowardCents ?? 0, loan.currency)} paid of {formatMoney(schedule.planned_amount_cents, loan.currency)}{isCustom ? '' : ' · projected'}</Text>
+              </Pressable>
+              <Text className="font-semibold text-textPrimary">{formatMoney(schedule.planned_amount_cents, loan.currency)}</Text>
+              <Pressable onPress={() => Alert.alert('Remove planned payment?', undefined, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => void deleteSchedule(schedule) },
+              ])} accessibilityLabel="Remove planned payment" className="ml-3 px-2 py-1">
+                <Text className="text-error">×</Text>
+              </Pressable>
+            </View>
+          );
+        })}
+        {monthlySummary.rows.length === 0 ? <Text className="text-sm text-textSecondary">No planned payments this month.</Text> : null}
+        {editingScheduleId ? (
+          <View className="gap-3 rounded-xl border border-border bg-surface p-3">
+            <TextField label="Due date (YYYY-MM-DD)" value={scheduleDateText} onChangeText={setScheduleDateText} placeholder="2026-10-15" />
+            <TextField label="Planned amount" value={scheduleAmountText} onChangeText={setScheduleAmountText} keyboardType="decimal-pad" placeholder="0.00" />
+            {scheduleError ? <Text className="text-sm text-error">{scheduleError}</Text> : null}
+            <View className="flex-row gap-2">
+              <Button label="Save" onPress={onSaveSchedule} loading={isScheduleSaving} />
+              <Button label="Cancel" variant="secondary" onPress={() => setEditingScheduleId(null)} />
+            </View>
+          </View>
+        ) : <Button label="+ Add planned payment" variant="secondary" onPress={() => startScheduleEdit()} />}
+      </View>
 
       <Text className="pb-2 text-sm font-semibold text-clay">Payment Schedule</Text>
       <View className="mb-4 gap-2">

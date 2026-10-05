@@ -16,6 +16,14 @@ namespace Ours.Api.Controllers;
 [Route("api/loans")]
 public class LoanController(LoanService loanService) : ControllerBase
 {
+    /// <summary>Summarizes planned installments and actual loan-payment transactions for one calendar month.</summary>
+    [HttpGet("month-report")]
+    public async Task<ActionResult<LoanMonthReportDto>> MonthReport([FromQuery] int year, [FromQuery] int month, CancellationToken ct)
+    {
+        var response = await loanService.GetMonthReportAsync(year, month, ct);
+        return Ok(response);
+    }
+
     /// <summary>Records one payment toward a loan — idempotent on LoanPaymentRequestDto.PaymentId (a retried/duplicated request is a no-op, not a double debit).</summary>
     [HttpPost("{id:guid}/payments")]
     public async Task<ActionResult<LoanPaymentResponseDto>> Pay(Guid id, LoanPaymentRequestDto request, CancellationToken ct)

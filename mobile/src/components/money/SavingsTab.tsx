@@ -4,11 +4,11 @@ import { Button } from '../Button';
 import { EmptyState } from '../EmptyState';
 import { MoneySectionHeader } from '../MoneySectionHeader';
 import { MoneyStat } from '../MoneyStat';
-import { ProgressBar } from '../ProgressBar';
+import { SavingsProgressBar } from '../SavingsProgressBar';
 import { SavingsGoalCard } from '../SavingsGoalCard';
 import type { Couple, CoupleMember, SavingsGoal, Transaction } from '../../types/entities';
 import { calculateBucketAmountCents, calculateCombinedIncomeCents } from '../../utils/allocationCalculations';
-import { calculateSavingsGoalBalance } from '../../utils/moneyCalculations';
+import { calculateSavingsGoalActivity } from '../../utils/moneyCalculations';
 import { formatMoney } from '../../utils/money';
 
 interface SavingsTabProps {
@@ -29,9 +29,11 @@ interface SavingsTabProps {
 export function SavingsTab({ couple, members, goals, transactions, currency }: SavingsTabProps) {
   const router = useRouter();
 
-  const totalSavingsCents = goals.reduce((sum, g) => sum + calculateSavingsGoalBalance(g.id, transactions), 0);
+  const totalAllocatedCents = goals.reduce((sum, goal) => sum + calculateSavingsGoalActivity(goal.id, transactions).allocatedCents, 0);
+  const totalSpentCents = goals.reduce((sum, goal) => sum + calculateSavingsGoalActivity(goal.id, transactions).spentCents, 0);
+  const totalSavingsCents = totalAllocatedCents - totalSpentCents;
   const totalGoalsCents = goals.reduce((sum, g) => sum + g.target_amount_cents, 0);
-  const overallPercent = totalGoalsCents > 0 ? Math.round((totalSavingsCents / totalGoalsCents) * 100) : 0;
+  const overallPercent = totalGoalsCents > 0 ? Math.max(0, Math.min(100, Math.round((totalSavingsCents / totalGoalsCents) * 100))) : 0;
 
   const combinedIncomeCents = calculateCombinedIncomeCents(members[0]?.monthly_income_cents ?? 0, members[1]?.monthly_income_cents ?? 0);
   const monthlyAllocationCents = couple?.savings_allocation_percent != null ? calculateBucketAmountCents(combinedIncomeCents, couple.savings_allocation_percent) : null;
@@ -39,13 +41,14 @@ export function SavingsTab({ couple, members, goals, transactions, currency }: S
   return (
     <View className="gap-7">
       <View className="gap-2">
-        <MoneyStat label="Saved" value={formatMoney(totalSavingsCents, currency)} size="lg" />
+        <MoneyStat label="Remaining" value={formatMoney(totalSavingsCents, currency)} size="lg" />
         {goals.length > 0 ? (
           <>
             <Text className="text-sm text-textSecondary">
-              {formatMoney(totalGoalsCents, currency)} total goals · {overallPercent}% overall progress
+              Allocated {formatMoney(totalAllocatedCents, currency)} · Spent {formatMoney(totalSpentCents, currency)}
             </Text>
-            <ProgressBar percent={overallPercent} tone={overallPercent >= 100 ? 'success' : 'accent'} />
+            <Text className="text-xs text-textMuted">{formatMoney(totalGoalsCents, currency)} total goals · {overallPercent}% remaining progress</Text>
+            <SavingsProgressBar allocatedCents={totalAllocatedCents} spentCents={totalSpentCents} targetCents={totalGoalsCents} />
           </>
         ) : null}
         {monthlyAllocationCents !== null ? (
@@ -63,7 +66,9 @@ export function SavingsTab({ couple, members, goals, transactions, currency }: S
               <SavingsGoalCard
                 key={goal.id}
                 name={goal.name}
-                currentAmountCents={calculateSavingsGoalBalance(goal.id, transactions)}
+                allocatedAmountCents={calculateSavingsGoalActivity(goal.id, transactions).allocatedCents}
+                spentAmountCents={calculateSavingsGoalActivity(goal.id, transactions).spentCents}
+                remainingAmountCents={calculateSavingsGoalActivity(goal.id, transactions).remainingCents}
                 targetAmountCents={goal.target_amount_cents}
                 currency={goal.currency}
                 onPress={() => router.push(`/savings-goals/${goal.id}`)}

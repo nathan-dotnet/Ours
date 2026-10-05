@@ -91,6 +91,50 @@ public class LoanServiceTests
     };
 
     [Fact]
+    public async Task GetMonthReportAsync_UsesSchedulesForDueAndTransactionDatesForPaid()
+    {
+        var (service, _, db, coupleId, aliceId, _, _, loan) = await BuildAsync();
+        var secondLoan = new Loan
+        {
+            Id = Guid.NewGuid(), CoupleId = coupleId, Name = "Second", OriginalAmount = 300m,
+            MonthlyPayment = 100m, TotalInstallments = 3, FirstDueDate = new DateOnly(2026, 10, 1),
+            PaymentAccountId = loan.PaymentAccountId,
+        };
+        db.Loans.Add(secondLoan);
+        db.LoanPaymentSchedules.AddRange(
+            new LoanPaymentSchedule { Id = Guid.NewGuid(), CoupleId = coupleId, LoanId = loan.Id, DueDate = new DateOnly(2026, 10, 1), PlannedAmount = 1700m },
+            new LoanPaymentSchedule { Id = Guid.NewGuid(), CoupleId = coupleId, LoanId = loan.Id, DueDate = new DateOnly(2026, 10, 31), PlannedAmount = 1700m },
+            new LoanPaymentSchedule { Id = Guid.NewGuid(), CoupleId = coupleId, LoanId = secondLoan.Id, DueDate = new DateOnly(2026, 11, 1), PlannedAmount = 100m });
+        db.Transactions.AddRange(
+            new Transaction { Id = Guid.NewGuid(), CoupleId = coupleId, Type = TransactionType.LoanPayment, Amount = 1000m, LoanId = loan.Id, AccountId = loan.PaymentAccountId, TransactionDate = new DateOnly(2026, 10, 15), CreatedByUserId = aliceId },
+            new Transaction { Id = Guid.NewGuid(), CoupleId = coupleId, Type = TransactionType.LoanPayment, Amount = 200m, LoanId = loan.Id, AccountId = loan.PaymentAccountId, TransactionDate = new DateOnly(2026, 11, 1), CreatedByUserId = aliceId },
+            new Transaction { Id = Guid.NewGuid(), CoupleId = coupleId, Type = TransactionType.LoanPayment, Amount = 900m, LoanId = loan.Id, AccountId = loan.PaymentAccountId, TransactionDate = new DateOnly(2026, 10, 20), IsDeleted = true, CreatedByUserId = aliceId },
+            new Transaction { Id = Guid.NewGuid(), CoupleId = coupleId, Type = TransactionType.Expense, Amount = 50m, LoanId = loan.Id, AccountId = loan.PaymentAccountId, TransactionDate = new DateOnly(2026, 10, 20), CreatedByUserId = aliceId });
+        await db.SaveChangesAsync();
+
+        var report = await service.GetMonthReportAsync(2026, 10);
+
+        Assert.Equal(3400m, report.TotalDue);
+        Assert.Equal(1000m, report.TotalPaid);
+        Assert.Equal(2400m, report.Remaining);
+        var loanReport = Assert.Single(report.Loans);
+        Assert.Equal(loan.Id, loanReport.LoanId);
+        Assert.Equal(3400m, loanReport.TotalDue);
+        Assert.Equal(1000m, loanReport.TotalPaid);
+        Assert.Equal(2400m, loanReport.Remaining);
+    }
+
+    [Theory]
+    [InlineData(2026, 0)]
+    [InlineData(1999, 1)]
+    public async Task GetMonthReportAsync_RejectsInvalidPeriod(int year, int month)
+    {
+        var (service, _, _, _, _, _, _, _) = await BuildAsync();
+
+        await Assert.ThrowsAsync<ValidationAppException>(() => service.GetMonthReportAsync(year, month));
+    }
+
+    [Fact]
     public async Task PayAsync_MatchesTheSpecWorkedExample_DecreasingTheAccountAndTheLoanTogether()
     {
         var (service, _, db, _, _, gcash, _, shopee) = await BuildAsync();

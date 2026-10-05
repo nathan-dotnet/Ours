@@ -13,7 +13,7 @@ import { useDeleteSavingsGoal, useSavingsGoal, useUpdateSavingsGoal } from '@/ho
 import { useAuthStore } from '@/stores/authStore';
 import { softRaised } from '@/styles/neumorphism';
 import { toLocalDateString } from '@/utils/date';
-import { calculateSavingsGoalBalance } from '@/utils/moneyCalculations';
+import { calculateSavingsGoalActivity } from '@/utils/moneyCalculations';
 import { centsToAmountInput, formatMoney, parseAmountInputToCents } from '@/utils/money';
 import { parsePercentInput } from '@/utils/allocationCalculations';
 import type { SavingsGoalFormValues } from '@/validation/savingsGoal';
@@ -44,7 +44,8 @@ export default function SavingsGoalDetailScreen() {
   const allAccounts = accounts ?? [];
   const { data: transactions } = useTransactionsForCouple(coupleData?.couple.id);
   const allTransactions = transactions ?? [];
-  const currentAmountCents = goal ? calculateSavingsGoalBalance(goal.id, allTransactions) : 0;
+  const activity = goal ? calculateSavingsGoalActivity(goal.id, allTransactions) : { allocatedCents: 0, spentCents: 0, remainingCents: 0 };
+  const currentAmountCents = activity.remainingCents;
 
   const onSubmit = async (values: SavingsGoalFormValues) => {
     if (!goal || !user) return;
@@ -167,7 +168,7 @@ export default function SavingsGoalDetailScreen() {
     );
   }
 
-  const progress = goal.target_amount_cents > 0 ? Math.min(currentAmountCents / goal.target_amount_cents, 1) : 0;
+  const progress = goal.target_amount_cents > 0 ? Math.max(0, Math.min(currentAmountCents / goal.target_amount_cents, 1)) : 0;
 
   if (moneyMode) {
     return (
@@ -194,7 +195,8 @@ export default function SavingsGoalDetailScreen() {
       <View className="items-center gap-2 py-4">
         <Text className="text-2xl font-semibold text-ink">{goal.name}</Text>
         <Text className="text-3xl font-semibold text-ink">{formatMoney(currentAmountCents, goal.currency)}</Text>
-        <Text className="text-sm text-clay">of {formatMoney(goal.target_amount_cents, goal.currency)} target</Text>
+        <Text className="text-sm text-clay">remaining of {formatMoney(goal.target_amount_cents, goal.currency)} target</Text>
+        <Text className="text-xs text-clay">Allocated {formatMoney(activity.allocatedCents, goal.currency)} · Spent {formatMoney(activity.spentCents, goal.currency)}</Text>
 
         <View className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-ink/10">
           <View className="h-full rounded-full bg-rose" style={{ width: `${Math.round(progress * 100)}%` }} />

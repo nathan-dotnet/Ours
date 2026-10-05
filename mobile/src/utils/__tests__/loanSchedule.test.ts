@@ -1,9 +1,10 @@
-import type { Loan, Transaction } from '../../types/entities';
+import type { Loan, LoanPaymentSchedule, Transaction } from '../../types/entities';
 import {
   allocatePaymentsToSchedule,
   generateLoanSchedule,
   getLoanDueStatus,
   getLoanProgress,
+  getLoanMonthScheduleSummary,
   getNextUnpaidInstallment,
   isSameMonth,
 } from '../loanSchedule';
@@ -52,6 +53,21 @@ function payment(amountCents: number, overrides: Partial<Transaction> = {}): Tra
     created_by_user_id: 'user-1',
     created_at: '2026-09-15T00:00:00.000Z',
     updated_at: '2026-09-15T00:00:00.000Z',
+    updated_by_user_id: 'user-1',
+    version: 1,
+    is_deleted: 0,
+    ...overrides,
+  };
+}
+
+function planned(id: string, dueDate: string, amountCents: number, overrides: Partial<LoanPaymentSchedule> = {}): LoanPaymentSchedule {
+  return {
+    id,
+    loan_id: 'loan-1',
+    due_date: dueDate,
+    planned_amount_cents: amountCents,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
     updated_by_user_id: 'user-1',
     version: 1,
     is_deleted: 0,
@@ -155,6 +171,42 @@ describe('allocatePaymentsToSchedule', () => {
 
     expect(progress.every((p) => !p.isFullyPaid)).toBe(true);
     expect(getNextUnpaidInstallment(progress)?.installmentNumber).toBe(1);
+  });
+});
+
+describe('getLoanMonthScheduleSummary', () => {
+  it('totals selected-month plans and allocates only this loan\'s non-deleted payments', () => {
+    const summary = getLoanMonthScheduleSummary(
+      loan(),
+      [
+        planned('plan-1', '2026-09-10', 30_000),
+        planned('plan-2', '2026-09-20', 40_000),
+        planned('plan-other-month', '2026-10-10', 90_000),
+      ],
+      [
+        payment(45_000, { id: 'payment-1', transaction_date: '2026-09-25' }),
+        payment(90_000, { id: 'other-loan', loan_id: 'loan-2' }),
+        payment(90_000, { id: 'deleted', is_deleted: 1 }),
+      ],
+      2026, 9,
+    );
+
+    expect(summary.dueCents).toBe(70_000);
+    expect(summary.paidCents).toBe(45_000);
+    expect(summary.remainingCents).toBe(25_000);
+    expect(summary.rows.map(({ schedule, progress }) => [schedule.id, progress.paidTowardCents, progress.remainingCents])).toEqual([
+      ['plan-1', 30_000, 0],
+      ['plan-2', 15_000, 25_000],
+    ]);
+  });
+
+  it('shows the generated loan installment when the month has no custom plan rows', () => {
+    const summary = getLoanMonthScheduleSummary(loan(), [], [payment(25_000)], 2026, 9);
+    expect(summary.dueCents).toBe(100_000);
+    expect(summary.paidCents).toBe(25_000);
+    expect(summary.remainingCents).toBe(75_000);
+    expect(summary.rows[0].isCustom).toBe(false);
+    expect(summary.rows[0].progress.paidTowardCents).toBe(25_000);
   });
 });
 

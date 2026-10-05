@@ -2,7 +2,7 @@ import { ACCOUNT_ICON_OPTIONS, getAccountBrand } from '../accountBrand';
 
 describe('getAccountBrand', () => {
   it('returns a known-brand badge (a real logo image, not a generic emoji) for recognized institutions', () => {
-    for (const icon of ['bpi', 'gcash', 'maribank', 'bdo', 'gotyme']) {
+    for (const icon of ['bpi', 'gcash', 'maribank', 'maya', 'bdo', 'gotyme']) {
       const brand = getAccountBrand(icon, 'Bank');
       expect(brand.isKnownBrand).toBe(true);
       expect(brand.logo).not.toBeNull();
@@ -12,6 +12,7 @@ describe('getAccountBrand', () => {
   it('is case-insensitive', () => {
     expect(getAccountBrand('BPI', 'Bank').label).toBe('BPI');
     expect(getAccountBrand('Gcash', 'EWallet').label).toBe('GCash');
+    expect(getAccountBrand('Maya', 'EWallet').label).toBe('Maya');
   });
 
   it('falls back to a generic emoji badge (not a known-brand logo) for cash', () => {

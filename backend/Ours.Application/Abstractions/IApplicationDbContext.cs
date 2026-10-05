@@ -20,6 +20,7 @@ public interface IApplicationDbContext
     DbSet<Budget> Budgets { get; }
     DbSet<SavingsGoal> SavingsGoals { get; }
     DbSet<Loan> Loans { get; }
+    DbSet<LoanPaymentSchedule> LoanPaymentSchedules { get; }
     DbSet<Distribution> Distributions { get; }
     DbSet<VaultItem> VaultItems { get; }
     DbSet<MissMeInteraction> MissMeInteractions { get; }

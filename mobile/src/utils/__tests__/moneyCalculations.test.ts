@@ -6,7 +6,9 @@ import {
   calculateLoanPaidAmount,
   calculateLoanRemainingBalance,
   calculateMonthlySpending,
+  calculateMonthlyTransactionTotal,
   calculateSavingsGoalBalance,
+  calculateSavingsGoalActivity,
   calculateTotalBalance,
 } from '../moneyCalculations';
 
@@ -148,6 +150,17 @@ describe('calculateSavingsGoalBalance', () => {
   });
 });
 
+describe('calculateSavingsGoalActivity', () => {
+  it('keeps gross contributions, gross withdrawals, and remaining balance distinct', () => {
+    const transactions = [
+      tx({ type: 'SavingsContribution', amount_cents: 80_000, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsWithdrawal', amount_cents: 25_000, savings_goal_id: 'goal-1' }),
+      tx({ type: 'SavingsContribution', amount_cents: 99_000, savings_goal_id: 'goal-1', is_deleted: 1 }),
+    ];
+    expect(calculateSavingsGoalActivity('goal-1', transactions)).toEqual({ allocatedCents: 80_000, spentCents: 25_000, remainingCents: 55_000 });
+  });
+});
+
 describe('calculateTotalBalance', () => {
   it('a transfer does not change the total', () => {
     const bpi = account({ id: 'bpi', opening_balance_cents: 1_000_000 });
@@ -192,6 +205,17 @@ describe('calculateMonthlySpending', () => {
       tx({ type: 'Expense', amount_cents: 20_000, is_deleted: 1 }),
     ];
     expect(calculateMonthlySpending(transactions, 2026, 9)).toBe(0);
+  });
+});
+
+describe('calculateMonthlyTransactionTotal', () => {
+  it('sums a selected ledger type for the selected month only', () => {
+    const transactions = [
+      tx({ type: 'LoanPayment', amount_cents: 30_000, transaction_date: '2026-09-08' }),
+      tx({ type: 'LoanPayment', amount_cents: 20_000, transaction_date: '2026-10-01' }),
+      tx({ type: 'LoanPayment', amount_cents: 99_000, transaction_date: '2026-09-15', is_deleted: 1 }),
+    ];
+    expect(calculateMonthlyTransactionTotal(transactions, 'LoanPayment', 2026, 9)).toBe(30_000);
   });
 });
 

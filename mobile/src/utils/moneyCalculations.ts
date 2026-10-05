@@ -59,6 +59,18 @@ export function calculateSavingsGoalBalance(savingsGoalId: string, transactions:
   return balance;
 }
 
+/** Gross savings activity; withdrawals never reduce the allocated-contribution figure. */
+export function calculateSavingsGoalActivity(savingsGoalId: string, transactions: Transaction[]): { allocatedCents: number; spentCents: number; remainingCents: number } {
+  let allocatedCents = 0;
+  let spentCents = 0;
+  for (const t of transactions) {
+    if (t.is_deleted || t.savings_goal_id !== savingsGoalId) continue;
+    if (t.type === 'SavingsContribution') allocatedCents += t.amount_cents;
+    else if (t.type === 'SavingsWithdrawal') spentCents += t.amount_cents;
+  }
+  return { allocatedCents, spentCents, remainingCents: allocatedCents - spentCents };
+}
+
 /** Sum of every active (non-deleted) account's balance — a Transfer's two legs always cancel out across the whole couple. */
 export function calculateTotalBalance(accounts: Account[], transactions: Transaction[]): number {
   return accounts
@@ -70,6 +82,13 @@ export function calculateTotalBalance(accounts: Account[], transactions: Transac
 export function calculateMonthlySpending(transactions: Transaction[], year: number, month: number): number {
   return transactions
     .filter((t) => !t.is_deleted && t.type === 'Expense' && matchesMonth(t.transaction_date, year, month))
+    .reduce((total, t) => total + t.amount_cents, 0);
+}
+
+/** Gross monthly total for one ledger type, kept separate from ordinary Expense spending. */
+export function calculateMonthlyTransactionTotal(transactions: Transaction[], type: string, year: number, month: number): number {
+  return transactions
+    .filter((t) => !t.is_deleted && t.type === type && matchesMonth(t.transaction_date, year, month))
     .reduce((total, t) => total + t.amount_cents, 0);
 }
 

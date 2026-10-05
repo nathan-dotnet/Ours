@@ -3,6 +3,7 @@ import { accountRepository } from '../../repositories/accountRepository';
 import { budgetRepository } from '../../repositories/budgetRepository';
 import { calendarEventRepository } from '../../repositories/calendarEventRepository';
 import { coupleRepository } from '../../repositories/coupleRepository';
+import { loanPaymentScheduleRepository } from '../../repositories/loanPaymentScheduleRepository';
 import { transactionRepository } from '../../repositories/transactionRepository';
 import { vaultRepository } from '../../repositories/vaultRepository';
 import { useAuthStore } from '../../stores/authStore';
@@ -96,6 +97,31 @@ describe('runSync', () => {
 
     const stored = await calendarEventRepository.getById(eventId);
     expect(stored).toMatchObject({ title: 'Movie night', couple_id: coupleId, created_by_user_id: 'user-bob' });
+  });
+
+  it('applies a pulled loan_payment_schedule change and converts its decimal amount to cents', async () => {
+    await useAuthStore.getState().setSession({
+      ...sessionWithoutCouple,
+      user: { ...sessionWithoutCouple.user, coupleId: 'couple-1' },
+    } as never);
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse({
+      serverTime: '2026-10-01T00:00:00.000Z',
+      changes: [{
+        entityType: 'loan_payment_schedule',
+        entityId: 'planned-row-1',
+        operation: 'CREATE',
+        payload: { loanId: 'loan-1', dueDate: '2026-10-15', plannedAmount: 123.45 },
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        updatedByUserId: 'user-bob',
+        version: 1,
+      }],
+    })) as never;
+
+    await runSync();
+
+    expect(await loanPaymentScheduleRepository.getForLoan('loan-1')).toMatchObject([
+      { id: 'planned-row-1', due_date: '2026-10-15', planned_amount_cents: 12_345, version: 1 },
+    ]);
   });
 
   it('pulling our own couple_profile tombstone clears the couple locally and patches the session', async () => {

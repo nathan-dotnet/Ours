@@ -3,6 +3,7 @@ import { budgetRepository, BUDGET_ENTITY_TYPE } from '../repositories/budgetRepo
 import { calendarEventRepository, CALENDAR_EVENT_ENTITY_TYPE } from '../repositories/calendarEventRepository';
 import { coupleRepository, COUPLE_PROFILE_ENTITY_TYPE } from '../repositories/coupleRepository';
 import { loanRepository, LOAN_ENTITY_TYPE } from '../repositories/loanRepository';
+import { loanPaymentScheduleRepository, LOAN_PAYMENT_SCHEDULE_ENTITY_TYPE } from '../repositories/loanPaymentScheduleRepository';
 import { savingsGoalRepository, SAVINGS_GOAL_ENTITY_TYPE } from '../repositories/savingsGoalRepository';
 import { transactionRepository, TRANSACTION_ENTITY_TYPE } from '../repositories/transactionRepository';
 import { vaultRepository, VAULT_ITEM_ENTITY_TYPE } from '../repositories/vaultRepository';
@@ -15,6 +16,7 @@ import type {
   CalendarEventPayload,
   CoupleProfilePayload,
   LoanPayload,
+  LoanPaymentSchedulePayload,
   SavingsGoalPayload,
   TransactionPayload,
   VaultItemPayload,
@@ -162,6 +164,15 @@ async function pullRemote(): Promise<void> {
         coupleId,
         change.entityId,
         change.payload as LoanPayload | null,
+        change.updatedAt,
+        change.updatedByUserId,
+        change.version,
+      );
+    } else if (change.entityType === LOAN_PAYMENT_SCHEDULE_ENTITY_TYPE) {
+      if (coupleJustEnded) continue;
+      await loanPaymentScheduleRepository.applyRemoteChange(
+        change.entityId,
+        change.payload as LoanPaymentSchedulePayload | null,
         change.updatedAt,
         change.updatedByUserId,
         change.version,

@@ -23,6 +23,62 @@ public class LoanService(IApplicationDbContext db, ICurrentUserService currentUs
     /// <summary>Same sanity ceiling as SyncService.MaxMoneyAmount/DistributionService.MaxMoneyAmount.</summary>
     private const decimal MaxMoneyAmount = 10_000_000m;
 
+    public async Task<LoanMonthReportDto> GetMonthReportAsync(int year, int month, CancellationToken ct = default)
+    {
+        var coupleId = currentUser.CoupleId ?? throw new ForbiddenAppException("You must belong to a couple to do this.");
+        if (month is < 1 or > 12)
+        {
+            throw new ValidationAppException("Month must be between 1 and 12.");
+        }
+        if (year is < 2000 or > 2100)
+        {
+            throw new ValidationAppException("Invalid year.");
+        }
+
+        var firstDay = new DateOnly(year, month, 1);
+        var nextMonth = firstDay.AddMonths(1);
+        var schedules = await db.LoanPaymentSchedules
+            .Where(s => s.CoupleId == coupleId && !s.IsDeleted && s.DueDate >= firstDay && s.DueDate < nextMonth)
+            .ToListAsync(ct);
+        var payments = await db.Transactions
+            .Where(t => t.CoupleId == coupleId && !t.IsDeleted && t.Type == TransactionType.LoanPayment
+                && t.TransactionDate >= firstDay && t.TransactionDate < nextMonth)
+            .ToListAsync(ct);
+
+        var loanIds = schedules.Select(s => s.LoanId)
+            .Concat(payments.Where(p => p.LoanId != null).Select(p => p.LoanId!.Value))
+            .Distinct()
+            .ToList();
+        var loans = await db.Loans.Where(l => l.CoupleId == coupleId && loanIds.Contains(l.Id)).ToListAsync(ct);
+        var items = loanIds.Select(loanId =>
+        {
+            var loan = loans.FirstOrDefault(l => l.Id == loanId);
+            var due = schedules.Where(s => s.LoanId == loanId).Sum(s => s.PlannedAmount);
+            var paid = payments.Where(p => p.LoanId == loanId).Sum(p => p.Amount);
+            return new LoanMonthReportItemDto
+            {
+                LoanId = loanId,
+                LoanName = loan?.Name ?? "",
+                Currency = loan?.Currency ?? "PHP",
+                TotalDue = due,
+                TotalPaid = paid,
+                Remaining = Math.Max(0m, due - paid),
+            };
+        }).OrderBy(item => item.LoanName).ToList();
+
+        var totalDue = schedules.Sum(s => s.PlannedAmount);
+        var totalPaid = payments.Sum(p => p.Amount);
+        return new LoanMonthReportDto
+        {
+            Year = year,
+            Month = month,
+            TotalDue = totalDue,
+            TotalPaid = totalPaid,
+            Remaining = Math.Max(0m, totalDue - totalPaid),
+            Loans = items,
+        };
+    }
+
     public async Task<LoanPaymentResponseDto> PayAsync(Guid loanId, LoanPaymentRequestDto request, CancellationToken ct = default)
     {
         var coupleId = currentUser.CoupleId ?? throw new ForbiddenAppException("You must belong to a couple to do this.");

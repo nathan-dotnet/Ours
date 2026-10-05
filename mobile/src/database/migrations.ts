@@ -12,6 +12,7 @@ import {
   MIGRATION_V9,
   MIGRATION_V10_ADD_COLUMNS,
   MIGRATION_V10_DROP_DUE_DAY,
+  MIGRATION_V11,
 } from './schema';
 
 /**
@@ -88,6 +89,11 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     }
     await db.execAsync(MIGRATION_V10_DROP_DUE_DAY);
     version = 10;
+  }
+
+  if (version < 11) {
+    await db.execAsync(MIGRATION_V11);
+    version = 11;
   }
 
   await db.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
